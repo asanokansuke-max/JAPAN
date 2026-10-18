@@ -52,7 +52,7 @@
   // ---------- 主将 ----------
   function leadership(p) {
     if (!p) return 0;
-    return Math.round((p.traits.includes('リーダー') ? 25 : 0) + Math.min(p.caps, 80) * 0.25 + clamp(G.age(p) - 22, 0, 12) * 1.5 + (p.chem || 0) * 0.15 + (p.mood || 0) * 3);
+    return Math.round((p.traits.includes('リーダー') ? 25 : 0) + (p.mentor ? 10 : 0) + Math.min(p.caps, 80) * 0.25 + clamp(G.age(p) - 22, 0, 12) * 1.5 + (p.chem || 0) * 0.15 + (p.mood || 0) * 3);
   }
   function suggestCaptain(ids) {
     return ids.map(G.player).filter(Boolean).sort((a, b) => leadership(b) - leadership(a)).slice(0, 2).map(p => p.id);
@@ -95,6 +95,7 @@
       const rel = clubRel(p.club);
       const grumpy = rel < 40 ? 0.25 : 0;
       let type = null;
+      if (ev.comp === 'e1') break;
       if (ev.comp === 'olympic' && eu && rnd() < 0.55 + grumpy) type = 'refuse';
       else if (ev.comp === 'asiancup' && eu && p.tier <= 3 && rnd() < 0.3 + grumpy) type = pickW(['late', 'limit'], () => 1);
       else if (W.weeksSinceReturn(S, p) < 8 && rnd() < 0.4) type = 'limit';
@@ -136,6 +137,8 @@
     const S = G.state();
     const cap = G.player(S.captain);
     const lead = leadership(cap);
+    // 家族の事情による申し出
+    if (root.SBLife && rnd() < 0.04) { const fr = root.SBLife.familyRequest(sq); if (fr) { S.cur.camp.pending = fr; return fr.text; } }
     if (rnd() > 0.09 * (lead >= 45 ? 0.5 : 1)) return null;
     const p = pickW(sq.filter(x => x.id !== S.captain), x => (G.age(x) < 25 ? 2 : 1) * ((x.mood || 0) < 0 ? 2 : 1));
     if (!p) return null;
@@ -150,6 +153,13 @@
     if (!pd) return null;
     const p = G.player(pd.id);
     let line;
+    if (pd.kind === 'family') {
+      line = root.SBLife.resolveFamily(pd, choice);
+      c.pending = null;
+      c.log.push({ day: c.done.length, key: 'disc', name: '選手の申し出', lines: [line] });
+      G.save();
+      return line;
+    }
     if (choice === 'strict') { p.awayGames = 1; mood(p, -1.5); S.morale = clamp(S.morale + 2, 0, 100); S.fans = clamp(S.fans + 2, 0, 100); line = `${p.name}を次戦メンバー外とする厳しい処分。規律を示した`; G.addNews('チーム', `${S.coach}監督、規律違反の${p.name}を次戦メンバー外に。`); }
     else if (choice === 'warn') { mood(p, -0.4); line = `${p.name}に口頭で注意。チームへの影響は最小限に`; }
     else {

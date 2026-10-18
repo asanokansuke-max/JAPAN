@@ -31,12 +31,13 @@
 
   function recommend(n) {
     if (G.isOly()) return recommendOly();
-    const ps = G.visible().filter(G.callable);
-    const quota = [[['GK'], 3], [['CB'], 5], [['LB', 'RB'], 4], [['DM', 'CM'], 5], [['AM', 'LW', 'RW'], 6], [['ST'], 3]];
+    const ps = G.visible().filter(p => G.callable(p) && G.eligibleNow(p));
+    const quota = n >= 26 ? [[['GK'], 3], [['CB'], 5], [['LB', 'RB'], 4], [['DM', 'CM'], 5], [['AM', 'LW', 'RW'], 6], [['ST'], 3]]
+      : [[['GK'], 3], [['CB'], 4], [['LB', 'RB'], 3], [['DM', 'CM'], 4], [['AM', 'LW', 'RW'], 5], [['ST'], 3]];
     const pick = new Set();
     for (const [poss, q] of quota) ps.filter(p => poss.includes(p.pos)).sort((a, b) => value(b) - value(a)).slice(0, q).forEach(p => pick.add(p.id));
     ps.filter(p => p.pos !== 'GK' && !pick.has(p.id)).sort((a, b) => value(b) - value(a)).forEach(p => { if (pick.size < n) pick.add(p.id); });
-    return [...pick];
+    return [...pick].slice(0, n);
   }
 
   // 五輪：U-23から15人、オーバーエイジ3人
@@ -85,7 +86,7 @@
     const cur = S.squad.filter(id => { const p = G.player(id); return p && !p.retired; });
     const coach = { rec, swaps: [], notes: [] };
     if (!cur.length) {
-      coach.summary = G.isOly() ? 'U-23から15人、オーバーエイジ3人の18人を用意しました。欧州のクラブは五輪への派遣を渋るかもしれません。' : `${ev.kind === 'tour' ? '大会に向けて' : '今回の活動に向けて'}、クラブでの状態を踏まえた26人を用意しました。たたき台にしてください。`;
+      coach.summary = G.isE1() ? 'E-1選手権は国内組だけの大会です。Jリーグで結果を出している選手を中心に選びました。ここで輝けばA代表への道が開けます。' : G.isOly() ? 'U-23から15人、オーバーエイジ3人の18人を用意しました。欧州のクラブは五輪への派遣を渋るかもしれません。' : `${ev.kind === 'tour' ? '大会に向けて' : '今回の活動に向けて'}、クラブでの状態を踏まえた26人を用意しました。たたき台にしてください。`;
     } else {
       const outs = cur.filter(id => !rec.includes(id)).map(G.player);
       const ins = rec.filter(id => !cur.includes(id)).map(G.player);
@@ -116,7 +117,7 @@
     if (ev.kind === 'qual') coach.notes.push('予選はアウェーの移動も厳しい。コンディションを最優先にしましょう。');
 
     // スカウト推薦
-    const pool = G.visible().filter(p => G.callable(p) && !cur.includes(p.id) && (cur.length || !rec.includes(p.id)));
+    const pool = G.visible().filter(p => G.callable(p) && G.eligibleNow(p) && !cur.includes(p.id) && (cur.length || !rec.includes(p.id)));
     const fresh = p => !p.scoutedAt || (S.date.y * 12 + S.date.m) - p.scoutedAt > 5;
     const picks = [];
     const add = (p, tag, text) => { if (p && !picks.some(x => x.id === p.id)) { picks.push({ id: p.id, tag, text }); p.scoutedAt = S.date.y * 12 + S.date.m; } };

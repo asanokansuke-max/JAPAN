@@ -16,6 +16,7 @@
     { id: 'ac27', y: 2027, m: 1, kind: 'tour', comp: 'asiancup', title: 'AFCアジアカップ2027（サウジアラビア）' },
     { id: 'f2703', y: 2027, m: 3, kind: 'friendly', title: 'キリンチャレンジカップ', venue: 'home', pool: [[72, 80], [78, 86]] },
     { id: 'f2706', y: 2027, m: 6, kind: 'friendly', title: 'キリンカップ', venue: 'home', pool: [[66, 76], [72, 80]] },
+    { id: 'e127', y: 2027, m: 7, kind: 'tour', comp: 'e1', title: 'EAFF E-1選手権2027（国内組・日本開催）', host: 'JPN' },
     { id: 'f2709', y: 2027, m: 9, kind: 'friendly', title: '欧州遠征', venue: 'away', pool: [[76, 84], [80, 88]] },
     { id: 'f2710', y: 2027, m: 10, kind: 'friendly', title: 'キリンチャレンジカップ', venue: 'home', pool: [[72, 80], [76, 84]] },
     { id: 'q2a', y: 2027, m: 11, kind: 'qual', comp: 'q2', mds: [0, 1], title: 'W杯アジア2次予選' },
@@ -27,6 +28,7 @@
     { id: 'q3c', y: 2028, m: 11, kind: 'qual', comp: 'q3', mds: [4, 5], title: 'W杯アジア最終予選' },
     { id: 'q3d', y: 2029, m: 3, kind: 'qual', comp: 'q3', mds: [6, 7], title: 'W杯アジア最終予選' },
     { id: 'q3e', y: 2029, m: 6, kind: 'qual', comp: 'q3', mds: [8, 9], title: 'W杯アジア最終予選' },
+    { id: 'e129', y: 2029, m: 7, kind: 'tour', comp: 'e1', title: 'EAFF E-1選手権2029（国内組・韓国開催）', host: 'KOR' },
     { id: 'q4', y: 2029, m: 10, kind: 'q4', comp: 'q4', title: 'W杯アジア4次予選', venue: 'home', pool: [[76, 84], [78, 86]] },
     { id: 'f2911', y: 2029, m: 11, kind: 'friendly', title: 'キリンチャレンジカップ', venue: 'home', pool: [[76, 84], [78, 88]] },
     { id: 'f3003', y: 2030, m: 3, kind: 'friendly', title: '欧州遠征', venue: 'away', pool: [[80, 86], [82, 90]] },
@@ -78,14 +80,14 @@
 
   function genProspect(y, opts) {
     opts = opts || {};
-    const pos = pickW(['GK', 'CB', 'CB', 'LB', 'RB', 'DM', 'CM', 'AM', 'LW', 'RW', 'ST', 'ST'], () => 1);
+    const pos = opts.pos || pickW(['GK', 'CB', 'CB', 'LB', 'RB', 'DM', 'CM', 'AM', 'LW', 'RW', 'ST', 'ST'], () => 1);
     const ageY = opts.age || ri(17, 19);
     const ovr = opts.ovr || ri(55, 66);
-    let pot = ovr + ri(10, 22);
+    let pot = opts.pot || ovr + ri(10, 22);
     if (rnd() < 0.04) pot = ri(85, 90);
     pot = Math.min(pot, 90);
-    const abroad = rnd() < 0.12;
-    const club = abroad ? pickW(D.CLUBS[4], () => 1) : (ageY <= 18 && rnd() < 0.5 ? pickW(D.YOUTH_CLUBS, () => 1) : pickW(D.CLUBS[5], () => 1));
+    const abroad = !opts.domestic && rnd() < 0.12;
+    const club = abroad ? pickW(D.CLUBS[4], () => 1) : (ageY <= 18 && !opts.domestic && rnd() < 0.5 ? pickW(D.YOUTH_CLUBS, () => 1) : pickW(D.CLUBS[5], () => 1));
     const traits = [];
     if (rnd() < 0.7) traits.push(pickW(TRAITS_BY_POS[pos], () => 1));
     if (rnd() < 0.25) { const t = pickW(TRAITS_BY_POS[pos], () => 1); if (!traits.includes(t)) traits.push(t); }
@@ -143,9 +145,10 @@
       training: null, trainBonus: null, fam: { '3-4-2-1': 62, '4-2-3-1': 50, '4-3-3': 35, '4-4-2': 30, '3-5-2': 30 },
       board: 60, morale: 60, fans: 55, scoutPts: 3, news: [],
       setPlay: { ck: 'mix', defend: 'zone', ckTaker: null, fkTaker: null, pkTaker: null }, spFam: 40,
-      captain: null, vice: null, upgrades: {}, clubRel: {}, meeting: null, matches: [], comps: {}, cur: null, log: [], wcResult: null, nextId: 0
+      captain: null, vice: null, upgrades: {}, clubRel: {}, meeting: null, instr: {}, matches: [], comps: {}, cur: null, log: [], wcResult: null, nextId: 0
     };
     D.NATIONS.forEach(n => { S.nations[n.code] = { rating: n.rating, base: n.rating }; });
+    if (root.SBRank) root.SBRank.init(S);
     const core = ['鈴木彩艶', '冨安健洋', '板倉滉', '伊藤洋輝', '谷口彰悟', '渡辺剛', '町田浩樹', '瀬古歩夢', '鈴木淳之介', '菅原由勢', '長友佑都', '遠藤航', '守田英正', '田中碧', '佐野海舟', '鎌田大地', '久保建英', '三笘薫', '堂安律', '伊東純也', '南野拓実', '中村敬斗', '前田大然', '上田綺世', '町野修斗', '小川航基', '大迫敬介', '早川友基', '鈴木唯人', '藤田譲瑠チマ', '関根大輝', '望月ヘンリー海輝', '細谷真大'];
     D.PLAYERS.forEach(o => {
       const inCore = core.includes(o.name);
@@ -158,6 +161,12 @@
     for (let i = 0; i < 10; i++) S.players.push(genProspect(2026, { age: ri(17, 20), ovr: ri(58, 67) }));
     // Jリーグ・大学でプレーする若手（五輪世代の母集団）
     for (let i = 0; i < 24; i++) S.players.push(genProspect(2026, { age: ri(18, 21), ovr: ri(60, 69) }));
+    // Jリーグの中堅選手（国内組の層）
+    for (let i = 0; i < 4; i++) S.players.push(genProspect(2026, { pos: 'GK', age: ri(26, 32), ovr: ri(67, 72), pot: 73, domestic: true, visible: true }));
+    ['CB', 'CB', 'CB', 'LB', 'RB', 'DM', 'DM', 'CM', 'CM', 'AM', 'AM', 'LW', 'RW', 'LW', 'RW', 'ST', 'ST', 'ST'].forEach(pos => {
+      const o = ri(66, 72);
+      S.players.push(genProspect(2026, { pos, age: ri(24, 31), ovr: o, pot: o + ri(0, 3), domestic: true, visible: true }));
+    });
     root.SBWorld.bootstrap(S);
     if (root.SBExtra) root.SBExtra.genDuals(4);
     S.players.forEach(p => p.hist.push([dateKey(), Math.round(p.ovr)]));
@@ -193,12 +202,16 @@
   // 招集できる負傷の上限（週）：合宿中に治る程度の軽傷なら呼べる
   function injuryLimit() { const ev = event(); return ev && ev.kind === 'tour' ? 2.5 : 1.5; }
   function minorInjury(p) { return p.injury > 0 && p.injury <= injuryLimit(); }
-  function callable(p) { return p && !p.retired && !p.lost && p.injury <= injuryLimit() && !(p.awayGames > 0); }
+  function callable(p) { return p && !p.retired && !p.lost && !p.ntRetired && p.injury <= injuryLimit() && !(p.awayGames > 0); }
   function makeExternal(o) { const p = makePlayer(o); p.hist.push([dateKey(), Math.round(p.ovr)]); S.players.push(p); return p; }
   // 五輪：2028年はU-23（2005年以降生まれ）＋オーバーエイジ3人
   function isOly() { const ev = event(); return !!ev && ev.comp === 'olympic'; }
+  // E-1選手権は国内組（Jリーグ所属）だけで戦う
+  function isE1() { const ev = event(); return !!ev && ev.comp === 'e1'; }
+  function eligibleNow(p) { return isOly() ? p.born >= 2005 : isE1() ? root.SBWorld.isJ(p.club) : true; }
+  function tourAdj(comp) { return comp === 'olympic' ? OLY_ADJ : comp === 'e1' ? -5 : 0; }
   function olyEligible(p) { return p.born >= 2005; }
-  function squadMax() { return isOly() ? 18 : 26; }
+  function squadMax() { return isOly() ? 18 : isE1() ? 23 : 26; }
 
   function autoPick(ids, formation) {
     const slots = slotsOf(formation);
@@ -234,8 +247,10 @@
 
   function japanSpec(ids) {
     // 気持ちの状態を調子に上乗せした試合用コピー
-    const squad = (ids || S.squad).map(player).filter(p => p && !p.retired).map(p => Object.assign({}, p, { form: clamp(p.form + (p.mood || 0) * 0.35, -3, 3.5) }));
     const xi = S.xi.slice();
+    const pr = S.cur && S.cur.pressureNow || 0;
+    const L = root.SBLife;
+    const squad = (ids || S.squad).map(player).filter(p => p && !p.retired).map(p => Object.assign({}, p, { form: clamp(p.form + (p.mood || 0) * 0.35 + (L && pr ? L.pressureForm(p, pr, xi) : 0), -3, 3.5) }));
     const bench = squad.filter(p => !xi.includes(p.id) && available(player(p.id))).map(p => p.id);
     const tb = S.trainBonus || {};
     return {
@@ -244,6 +259,8 @@
       bonus: { att: tb.att || 0, def: tb.def || 0, mid: 0 }, setPiece: !!tb.setPiece,
       chem: teamChem(xi), fam: S.fam[S.formation], morale: S.morale,
       leader: root.SBExtra ? root.SBExtra.leaderBonus(xi) : 0,
+      pairs: L ? L.pairBonus(xi) : 0,
+      instr: xi.reduce((o, id) => { if (S.instr && S.instr[id]) o[id] = S.instr[id]; return o; }, {}),
       limits: squad.reduce((o, p) => { if (p.minCap) o[p.id] = p.minCap; return o; }, {}),
       setPlay: Object.assign({ fam: S.spFam }, S.setPlay)
     };
@@ -328,6 +345,7 @@
     else { if (host.includes(m.h)) adv += 1.5; if (host.includes(m.a)) adv -= 1.5; }
     const adj = opts && opts.adj;
     m.res = E.quickSim(ratingOf(m.h, adj), ratingOf(m.a, adj), adv, opts && opts.knockout);
+    if (root.SBRank && opts && opts.comp) root.SBRank.update(m.h, m.a, m.res.winner == null ? -1 : m.res.winner, opts.comp, opts.knockout, m.res.pens);
     return m.res;
   }
 
@@ -367,8 +385,9 @@
   function setupAsianCup() {
     const others = afcRanked(0).filter(c => c !== 'KSA').slice(0, 22);
     const field = ['JPN', 'KSA'].concat(others);
-    const ranked = field.slice().sort((a, b) => ratingOf(b) - ratingOf(a));
-    // ポット1：開催国と上位
+    const fp = c => (S.fifa && S.fifa[c]) || ratingOf(c) * 20;
+    const ranked = field.slice().sort((a, b) => fp(b) - fp(a));
+    // ポット1：開催国とFIFAランキング上位
     const pot1 = ['KSA'].concat(ranked.filter(c => c !== 'KSA').slice(0, 5));
     const rest = ranked.filter(c => !pot1.includes(c));
     const groups = drawGroups(pot1.concat(rest), 6, null);
@@ -386,10 +405,20 @@
     const left = D.NATIONS.filter(x => !field.includes(x.code) && x.conf !== 'UEFA' && x.code !== 'JPN').map(x => ({ c: x.code, r: S.nations[x.code].rating + normal(3) })).sort((a, b) => b.r - a.r).slice(0, 2).map(x => x.c);
     field.push(...left);
     const hosts = ['ESP', 'POR', 'MAR'];
-    const ranked = field.filter(c => !hosts.includes(c)).sort((a, b) => ratingOf(b) - ratingOf(a));
+    const fp = c => (S.fifa && S.fifa[c]) || ratingOf(c) * 20;
+    const ranked = field.filter(c => !hosts.includes(c)).sort((a, b) => fp(b) - fp(a));
     const potted = hosts.concat(ranked);
     const groups = drawGroups(potted, 12, confOK);
-    return newTour('wc', 'ワールドカップ2030', groups, hosts, ['ラウンド32', 'ラウンド16', '準々決勝', '準決勝', '決勝'], 8);
+    const t = newTour('wc', 'ワールドカップ2030', groups, hosts, ['ラウンド32', 'ラウンド16', '準々決勝', '準決勝', '決勝'], 8);
+    t.potIndex = {}; potted.forEach((c, i) => { t.potIndex[c] = i; });
+    return t;
+  }
+
+  function setupE1(ev) {
+    const g = ['JPN', 'KOR', 'CHN', pickW(['HKG', 'TPE', 'PHI'], () => 1)];
+    const t = newTour('e1', ev.y === 2027 ? 'E-1選手権2027' : 'E-1選手権2029', [g], [ev.host], [], 0);
+    t.adj = -5;
+    return t;
   }
 
   function setupOlympic() {
@@ -469,6 +498,7 @@
     S.cur = { id: ev.id, played: [], prevSquad: S.squad.slice() };
     if (root.SBCamp) S.cur.trips = root.SBCamp.makeTrips();
     S.squad.forEach(id => { const p = player(id); if (p) p.injuredInNT = false; });
+    S.cur.protectYoung = false;
     if (ev.kind === 'friendly' || (ev.kind === 'q4' && !(S.comps.q4 && S.comps.q4.teams.includes('JPN')))) {
       const ex = S.matches.slice(0, 6).map(m => m.opp);
       const bump = r => (S.upgrades && S.upgrades.tour) ? [r[0] + 3, r[1] + 3] : r;
@@ -481,15 +511,17 @@
       S.cur.kind = 'tour'; S.cur.title = ev.title;
       if (ev.comp === 'asiancup') S.comps.asiancup = setupAsianCup();
       if (ev.comp === 'wc') S.comps.wc = setupWorldCup();
-      if (ev.comp === 'olympic') {
-        S.comps.olympic = setupOlympic();
+      if (ev.comp === 'e1') S.comps[ev.id] = setupE1(ev);
+      if (ev.comp === 'olympic' || ev.comp === 'e1') {
+        if (ev.comp === 'olympic') S.comps.olympic = setupOlympic();
         // A代表の招集リストは保存しておき、五輪後に戻す
         S.aSquad = { squad: S.squad.slice(), xi: S.xi.slice(), captain: S.captain, vice: S.vice };
         S.squad = []; S.xi = []; S.captain = null; S.vice = null;
         S.cur.prevSquad = [];
       }
-      const t = S.comps[ev.comp];
+      const t = S.comps[ev.comp === 'e1' ? ev.id : ev.comp];
       const g = tourGroupOfJapan(t);
+      if (ev.comp === 'wc') { const pot = Math.floor(t.potIndex.JPN / 12) + 1; addNews('抽選', `FIFAランキング${root.SBRank ? root.SBRank.rankOf('JPN') : '-'}位の日本はポット${pot}で抽選に臨んだ。`); }
       addNews('抽選', `${t.name}の組み合わせ決定：日本はグループ${g.name}（${g.teams.filter(c => c !== 'JPN').map(nname).join('・')}）。`);
     } else if (ev.kind === 'qual') {
       S.cur.kind = 'qual'; S.cur.title = ev.title;
@@ -515,7 +547,10 @@
     }
   }
 
-  function refreshReports() { if (root.SBStaff && S.phase === 'prep') S.cur.reports = root.SBStaff.prepReports(); }
+  function refreshReports() {
+    if (root.SBStaff && S.phase === 'prep') S.cur.reports = root.SBStaff.prepReports();
+    if (root.SBLife && S.phase === 'prep' && !S.cur.consults) S.cur.consults = root.SBLife.makeConsults();
+  }
 
   // 日本の次の試合
   function nextFixture() {
@@ -542,7 +577,7 @@
       return null;
     }
     if (c.kind === 'tour') {
-      const t = S.comps[ev.comp];
+      const t = tourOf(ev);
       if (t.bronze && !t.bronze.res && !t.out) return { comp: t.comp, label: `${t.name} 3位決定戦`, opp: t.bronze.a, venue: 'neutral', knockout: true, ref: t.bronze };
       if (t.out || t.stage === 'done') return null;
       const host = t.hosts;
@@ -550,7 +585,7 @@
         const g = tourGroupOfJapan(t);
         const m = g.rounds[t.md].find(x => x.h === 'JPN' || x.a === 'JPN');
         const opp = m.h === 'JPN' ? m.a : m.h;
-        return { comp: t.comp, label: `${t.name} グループ${g.name} 第${t.md + 1}戦`, opp, venue: host.includes(opp) ? 'away' : 'neutral', knockout: false, ref: m, oppHost: host.includes(opp) };
+        return { comp: t.comp, label: t.comp === 'e1' ? `${t.name} 第${t.md + 1}戦` : `${t.name} グループ${g.name} 第${t.md + 1}戦`, opp, venue: host.includes('JPN') ? 'home' : host.includes(opp) ? 'away' : 'neutral', knockout: false, ref: m, oppHost: host.includes(opp) };
       }
       const m = t.ko[t.round].find(x => x.h === 'JPN' || x.a === 'JPN');
       if (!m) return null;
@@ -560,10 +595,12 @@
     return null;
   }
 
+  function tourOf(ev) { return S.comps[ev.comp === 'e1' ? ev.id : ev.comp]; }
+
   function finishQualRound(comp, md) {
     const r = comp.rounds[md];
     if (!r) return;
-    r.forEach(m => { if (!m.res) simFixture(m, { homeAway: true }); });
+    r.forEach(m => { if (!m.res) simFixture(m, { homeAway: true, comp: event().comp }); });
   }
 
   // ---------- 合宿（招集確定） ----------
@@ -573,11 +610,13 @@
     const ev = event();
     const oly = isOly();
     const olyPool = oly ? visible().filter(p => callable(p) && olyEligible(p)).length + 3 : 99;
-    const max = squadMax(), min = oly ? Math.min(16, olyPool) : ev.kind === 'tour' ? 23 : 20;
+    const max = squadMax(), min = oly ? Math.min(16, olyPool) : isE1() ? Math.min(18, visible().filter(p => callable(p) && root.SBWorld.isJ(p.club)).length) : ev.kind === 'tour' ? 23 : 20;
+    if (isE1()) { const ng = ps.filter(p => !root.SBWorld.isJ(p.club)); if (ng.length) issues.push(`E-1選手権は国内組のみです（${ng.map(p => p.name).join('・')}）`); }
     if (ps.length > max) issues.push(`招集は最大${max}人です（現在${ps.length}人）`);
     if (ps.length < min) issues.push(`最低${min}人を招集してください（現在${ps.length}人）`);
     const gk = ps.filter(p => p.pos === 'GK').length;
-    if (gk < (oly ? 2 : 3)) issues.push(`GKを${oly ? 2 : 3}人以上招集してください`);
+    const gkNeed = isE1() ? Math.min(3, visible().filter(p => p.pos === 'GK' && callable(p) && root.SBWorld.isJ(p.club)).length) : oly ? 2 : 3;
+    if (gk < gkNeed) issues.push(`GKを${gkNeed}人以上招集してください`);
     if (oly) { const oa = ps.filter(p => !olyEligible(p)).length; if (oa > 3) issues.push(`オーバーエイジ（2004年以前生まれ）は3人までです（現在${oa}人）`); }
     const hurt = ps.filter(p => p.injury > injuryLimit());
     if (hurt.length) issues.push(`間に合わない負傷者が含まれています（${hurt.map(p => p.name).join('・')}）`);
@@ -597,7 +636,8 @@
         if (p.dual.ja < 35 && rnd() < 0.5) { S.squad = S.squad.filter(id => id !== p.id); S.cur.announce.declined = (S.cur.announce.declined || []).concat([p.id]); addNews('招集', `${p.name}が代表招集を辞退。${p.dual.nation}代表との間で揺れている。`, 'bad'); }
         else p.dual.ja = Math.min(100, p.dual.ja + 15);
       });
-      S.cur.clubReq = XX.clubRequests();
+      S.cur.clubReq = isE1() ? [] : XX.clubRequests();
+      if (root.SBLife) root.SBLife.onAnnounce();
       if (S.captain && !S.squad.includes(S.captain) && S.cur.prevSquad.includes(S.captain)) {
         const c = player(S.captain);
         S.fans = clamp(S.fans - 2, 0, 100); S.morale = clamp(S.morale - 2, 0, 100);
@@ -691,7 +731,7 @@
     const plan = (FOCUS_MENU[focus] || FOCUS_MENU.tactic).slice();
     let g = 0;
     while (S.cur.camp.done.length < S.cur.camp.days && g++ < 20) {
-      if (S.cur.camp.pending) root.SBExtra.resolveDiscipline('warn');
+      if (S.cur.camp.pending) root.SBExtra.resolveDiscipline(S.cur.camp.pending.kind === 'family' ? 'allow' : 'warn');
       trainSession(plan[S.cur.camp.done.length % plan.length]);
     }
     finishCamp();
@@ -711,7 +751,7 @@
 
   // 自動選考：ポジション枠ごとに能力・調子の高い順
   function autoSquad(n) {
-    if (isOly()) return root.SBStaff ? root.SBStaff.recommend(18) : [];
+    if (isOly() || isE1()) return root.SBStaff ? root.SBStaff.recommend(squadMax()) : [];
     n = n || 26;
     const ps = visible().filter(available);
     const score = p => p.ovr + p.form * 0.6 + (p.status === 'bench' ? -1.5 : 0) + p.chem * 0.01;
@@ -740,9 +780,16 @@
       const c = S.squad.map(player).filter(p => available(p) && !S.xi.includes(p.id)).sort((a, b) => b.ovr * fit(b, s) - a.ovr * fit(a, s))[0];
       if (c) S.xi[i] = c.id;
     });
+    S.cur.pressureNow = root.SBLife ? root.SBLife.pressure(fx) : 0;
     const jp = japanSpec();
-    const opp = nationSpec(fx.opp, S.jpnRating, { host: fx.oppHost, plan: oppPlan(fx), ratingAdj: fx.comp === 'olympic' ? OLY_ADJ : 0 });
+    S.cur.pressureNow = 0;
+    const opp = nationSpec(fx.opp, S.jpnRating, { host: fx.oppHost, plan: oppPlan(fx), ratingAdj: tourAdj(fx.comp) });
     const XX = root.SBExtra;
+    // マンマークの指示があれば相手エースの力が落ちる
+    if (Object.keys(jp.instr || {}).some(id => jp.instr[id] === 'mark')) {
+      const star = (nation(fx.opp).stars || []).map(x => x.split('/')[0]).find(nm => opp.players.some(p => p.name === nm));
+      const sp = star && opp.players.find(p => p.name === star); if (sp) sp.ovr *= 0.95;
+    }
     let heat = false;
     if (XX) {
       const vi = XX.venueInfo(fx);
@@ -754,7 +801,8 @@
     let home, away, neutral = fx.venue === 'neutral';
     if (fx.venue === 'away') { home = opp; away = jp; } else { home = jp; away = opp; }
     if (fx.oppHost) { neutral = false; home = opp; away = jp; opp.homeBoost = 0; }
-    const sim = new E.MatchSim(home, away, { neutral, knockout: fx.knockout, heat });
+    const cond = oppPlan(fx).cond || {};
+    const sim = new E.MatchSim(home, away, { neutral, knockout: fx.knockout, heat, weather: cond.weather, pitch: cond.pitch, ref: cond.ref });
     sim.userSide = home.isUser ? 0 : 1;
     return sim;
   }
@@ -763,13 +811,14 @@
   function oppPlan(fx) {
     S.cur.plans = S.cur.plans || {};
     const k = fx.label + fx.opp;
-    if (!S.cur.plans[k]) { const sp = nationSpec(fx.opp, S.jpnRating || japanStrength(), { ratingAdj: fx.comp === 'olympic' ? OLY_ADJ : 0 }); S.cur.plans[k] = { ment: sp.tactics.ment, style: sp.tactics.style, formation: sp.formation }; }
+    if (!S.cur.plans[k]) { const sp = nationSpec(fx.opp, S.jpnRating || japanStrength(), { ratingAdj: tourAdj(fx.comp) }); S.cur.plans[k] = { ment: sp.tactics.ment, style: sp.tactics.style, formation: sp.formation, cond: root.SBLife ? root.SBLife.matchConditions(fx) : null }; }
     return S.cur.plans[k];
   }
 
   function resultOutcome(gf, ga, pensWin) { if (gf > ga) return 'W'; if (gf < ga) return 'L'; return pensWin == null ? 'D' : (pensWin ? 'W' : 'L'); }
 
   function applyResult(fx, sim) {
+    let rec_rank = 0;
     const r = sim.result();
     const us = sim.userSide, them = 1 - us;
     const gf = r.score[us], ga = r.score[them];
@@ -817,7 +866,9 @@
     S.fam[S.formation] = Math.min(100, S.fam[S.formation] + 3);
 
     // 協会評価
-    const jr = S.jpnRating || 78, or = S.nations[fx.opp].rating + (fx.comp === 'olympic' ? OLY_ADJ : 0) + (fx.venue === 'away' ? 1.5 : 0) - (fx.venue === 'home' ? 1.5 : 0);
+    if (root.SBRank) rec_rank = root.SBRank.update('JPN', fx.opp, out === 'W' ? 0 : out === 'L' ? 1 : -1, fx.comp, fx.knockout, r.pens);
+    if (root.SBLife) { root.SBLife.afterMatch(r, us); root.SBLife.rivalryAfter(r, us); }
+    const jr = S.jpnRating || 78, or = S.nations[fx.opp].rating + tourAdj(fx.comp) + (fx.venue === 'away' ? 1.5 : 0) - (fx.venue === 'home' ? 1.5 : 0);
     const exp = 1 / (1 + Math.exp(-(jr - or) / 4));
     const act = out === 'W' ? 1 : out === 'D' ? 0.5 : 0;
     const K = fx.comp === 'friendly' ? 6 : (fx.comp === 'q2' || fx.comp === 'q3' || fx.comp === 'q4') ? 10 : 8;
@@ -829,6 +880,9 @@
       scorers, poss: r.possession[us], shots: [r.stats[us].shots, r.stats[them].shots], xg: [r.stats[us].xg, r.stats[them].xg], board: delta,
       motm: (() => { const all = r.players[us].filter(x => x.minutes >= 30).sort((a, b) => b.rating - a.rating)[0]; return all ? all.name : ''; })()
     };
+    rec.fifa = Math.round(rec_rank * 10) / 10;
+    rec.flags = (r.flags || []).map(f => ({ us: f.side === us, type: f.type }));
+    rec.cond = (oppPlan(fx).cond) || null;
     // 出場時間で選手の気持ちが変わる
     S.squad.forEach(id => {
       const p = player(id); if (!p) return;
@@ -855,7 +909,7 @@
       finishQualRound(comp, fx.md);
       S.cur.mds.shift();
     }
-    if (S.cur.kind === 'tour') advanceTour(S.comps[ev.comp]);
+    if (S.cur.kind === 'tour') { advanceTour(tourOf(ev)); if (root.SBLife) root.SBLife.maybeLeave(); }
     // 次の試合が別の地域なら移動の疲れ
     const nx = nextFixture();
     if (nx && root.SBExtra) {
@@ -869,8 +923,15 @@
   function advanceTour(t) {
     if (t.bronze && t.bronze.res) { t.out = true; t.finish = t.bronze.res.winner === 0 ? '銅メダル' : '4位'; return; }
     if (t.stage === 'group') {
-      t.groups.forEach(g => g.rounds[t.md].forEach(m => { if (!m.res) simFixture(m, { hosts: t.hosts, adj: t.adj }); }));
+      t.groups.forEach(g => g.rounds[t.md].forEach(m => { if (!m.res) simFixture(m, { hosts: t.hosts, adj: t.adj, comp: t.comp }); }));
       t.md++;
+      if (t.md >= 3 && t.comp === 'e1') {
+        const tb = table(t.groups[0]);
+        t.champion = tb[0].code; t.stage = 'done'; t.out = true;
+        const pos = tb.findIndex(r => r.code === 'JPN') + 1;
+        t.finish = pos === 1 ? '優勝' : `${pos}位`;
+        return;
+      }
       if (t.md >= 3) {
         buildKO(t);
         if (!t.qualified.includes('JPN')) {
@@ -885,7 +946,7 @@
     }
     if (t.stage === 'ko') {
       const cur = t.ko[t.round];
-      cur.forEach(m => { if (!m.res) simFixture(m, { hosts: t.hosts, knockout: true, adj: t.adj }); });
+      cur.forEach(m => { if (!m.res) simFixture(m, { hosts: t.hosts, knockout: true, adj: t.adj, comp: t.comp }); });
       const jm = cur.find(x => x.h === 'JPN' || x.a === 'JPN');
       const jWin = (jm.res.winner === 0) === (jm.h === 'JPN');
       const rn = t.roundNames[t.round];
@@ -932,13 +993,21 @@
     const summary = { title: S.cur.title || ev.title, lines: [] };
     let boardDelta = 0;
     if (ev.kind === 'tour') {
-      const t = S.comps[ev.comp];
+      const t = tourOf(ev);
       const fin = t.finish || '—';
       summary.lines.push(`日本の成績：${fin}`);
       summary.lines.push(`優勝：${nname(t.champion)}`);
       if (ev.comp === 'asiancup') {
         boardDelta = { '優勝': 20, '準優勝': 10, 'ベスト4': 4, 'ベスト8': -6, 'ベスト16': -12, 'グループリーグ敗退': -22 }[fin] || 0;
         addNews('大会', `アジアカップ2027閉幕。日本は${fin}。優勝は${nname(t.champion)}。`, fin === '優勝' ? 'good' : '');
+      } else if (ev.comp === 'e1') {
+        boardDelta = { '優勝': 5, '2位': 2, '3位': -1, '4位': -4 }[fin] || 0;
+        S.fans = clamp(S.fans + boardDelta * 0.6, 0, 100);
+        addNews('大会', `${t.name}閉幕。国内組の日本は${fin}。`, fin === '優勝' ? 'good' : '');
+        // 国内組の見極め：活躍した選手は評価を上げる
+        S.squad.map(player).filter(Boolean).forEach(p => { p.chem = Math.min(100, p.chem + 6); p.mood = clamp((p.mood || 0) + 0.8, -3, 3); });
+        const best = S.squad.map(player).filter(p => p && p.ratings.length).sort((a, b) => b.ratings[b.ratings.length - 1] - a.ratings[a.ratings.length - 1])[0];
+        if (best) addNews('大会', `E-1で輝いた${best.name}（${best.club}）にA代表定着の期待。`, 'good');
       } else if (ev.comp === 'olympic') {
         boardDelta = { '金メダル': 15, '銀メダル': 10, '銅メダル': 7, '4位': 2, 'ベスト8': -2, 'グループリーグ敗退': -8 }[fin] || 0;
         S.fans = clamp(S.fans + boardDelta * 0.6, 0, 100);
@@ -990,8 +1059,14 @@
       }
     }
     if (ev.kind === 'tour' && root.SBMedia) {
-      const pd = root.SBMedia.promiseResult(S.comps[ev.comp].finish);
+      const pd = root.SBMedia.promiseResult(tourOf(ev).finish);
       if (pd) { S.fans = clamp(S.fans + pd * 1.5, 0, 100); boardDelta += pd; summary.lines.push(pd > 0 ? '会見で掲げた目標を達成した' : '会見で掲げた目標に届かず、批判を浴びた'); }
+    }
+    // FIFAランキングの変動
+    if (root.SBRank) {
+      const rk = root.SBRank.rankOf('JPN');
+      if (S.lastRank && rk !== S.lastRank) { summary.lines.push(`FIFAランキング ${S.lastRank}位 → ${rk}位`); if (rk < S.lastRank) addNews('ランキング', `日本がFIFAランキング${rk}位に浮上。`, 'good'); else addNews('ランキング', `日本はFIFAランキング${rk}位に後退。`); }
+      S.lastRank = rk;
     }
     // 世論は協会の評価にも響く
     boardDelta += Math.round((S.fans - 50) * 0.06);
@@ -1024,7 +1099,7 @@
     // 招集解除：親善試合の出場停止と、クラブとの約束は活動ごとに消える
     S.players.forEach(p => { if (p.susp && p.suspComp === 'friendly') p.susp = 0; p.minCap = 0; p.awayGames = 0; });
     S.meeting = null;
-    if (S.aSquad && event() && CALENDAR[S.ev - 1] && CALENDAR[S.ev - 1].comp === 'olympic') {
+    if (S.aSquad && event() && CALENDAR[S.ev - 1] && ['olympic', 'e1'].includes(CALENDAR[S.ev - 1].comp)) {
       S.squad = S.aSquad.squad; S.xi = S.aSquad.xi; S.captain = S.aSquad.captain; S.vice = S.aSquad.vice; S.aSquad = null;
     }
     while (S.date.y * 100 + S.date.m < nx.y * 100 + nx.m) { stepMonth(); }
@@ -1128,6 +1203,8 @@
     s.setPlay = Object.assign({ ck: 'mix', defend: 'zone', ckTaker: null, fkTaker: null, pkTaker: null }, s.setPlay || {});
     if (s.spFam == null) s.spFam = 40;
     if (!s.upgrades) s.upgrades = {};
+    if (!s.instr) s.instr = {};
+    if (root.SBRank) root.SBRank.bind(s);
     if (!s.clubRel) s.clubRel = {};
     if (s.captain === undefined) { s.captain = null; s.vice = null; }
     // 日程に五輪を追加したので、進行中の活動の位置を合わせ直す
@@ -1152,7 +1229,7 @@
   root.SBGame = {
     CALENDAR, STATUS_LABEL, newGame, load, save, clearSave, state, setState, event, player, active, nation, nname,
     age, ageInt, attributes, potRange, potGrade, autoPick, xiRating, teamChem, japanStrength, slotsOf, available, squadIssues,
-    makeExternal, injuryLimit, minorInjury, callable, curGroup, compGroup, squadMax, isOly, olyEligible, suspended, confirmCamp, announce, startPress, answerPress, startCamp, trainSession, finishCamp, addNews, visible, scout, autoSquad, nextFixture, createMatch, applyResult, eventFinished, endEvent, advance, table, tourGroupOfJapan, dateStr,
+    isE1, eligibleNow, tourOf, makeExternal, injuryLimit, minorInjury, callable, curGroup, compGroup, squadMax, isOly, olyEligible, suspended, confirmCamp, announce, startPress, answerPress, startCamp, trainSession, finishCamp, addNews, visible, scout, autoSquad, nextFixture, createMatch, applyResult, eventFinished, endEvent, advance, table, tourGroupOfJapan, dateStr,
     nationSpec, japanSpec, stepMonth, oppPlan, refreshReports, campCondition
   };
 })(typeof window !== 'undefined' ? window : globalThis);

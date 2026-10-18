@@ -263,6 +263,11 @@
       head = strong ? `日本、${opp}に${rec.gf}-${rec.ga}で敗戦　世界との差を痛感` : big ? `屈辱の大敗…日本、${opp}に${rec.ga}失点　采配に疑問の声` : `日本、${opp}に痛恨の敗戦`;
       fansD = strong ? -2 : big ? -8 : -5; moraleD = strong ? -3 : -7;
     }
+    // 判定に泣いた試合
+    const robbed = (rec.flags || []).filter(f => f.us && (f.type === 'varGoal' || f.type === 'noPen')).length;
+    if (robbed && rec.out !== 'W') { head += '　疑惑の判定に泣く'; fansD += 2; moraleD += 1; }
+    const lucky = (rec.flags || []).filter(f => !f.us && f.type === 'varGoal').length;
+    if (lucky && rec.out === 'W') head += '　VARにも救われる';
     const pr = S.cur.promise || '';
     if (pr === 'win:' + rec.opp) {
       if (rec.out === 'W') { fansD += 4; head += '　有言実行'; } else { fansD -= 4; head += '　「勝ちにいく」宣言も空回り'; }
@@ -275,6 +280,7 @@
     if (rec.out === 'D') comments.push(pickW(['悪くはないけど勝ちきれない', 'もう一点取りたかった', '収穫と課題が見えた試合'], () => 1));
     if (rec.poss >= 60 && rec.out !== 'W') comments.push('ボールは持てても崩しきれない');
     if (rec.xg[0] > rec.xg[1] + 1 && rec.out !== 'W') comments.push('内容では勝っていた。運がなかった');
+    if (robbed) comments.unshift(pickW(['あれがノーゴールはおかしい', '審判ひどすぎる', 'VARに泣かされた…'], () => 1));
     return { head, fansD, moraleD, comments: comments.slice(0, 3), outlet: pickW(OUTLETS, () => 1) };
   }
 
@@ -285,7 +291,7 @@
     if (!pr || !finish) return 0;
     const rank = { '優勝': 6, '準優勝': 5, 'ベスト4': 4, 'ベスト8': 3, 'ベスト16': 2, 'ベスト32': 1, 'グループリーグ敗退': 0 }[finish];
     const need = { champion: 6, semi: 4, ko: 1 }[pr];
-    if (need == null) return 0;
+    if (need == null || rank == null) return 0;
     return rank >= need ? 5 : -(need - rank) * 2;
   }
 

@@ -68,6 +68,27 @@
     return f;
   }
 
+  // 選手個別の指示：ラインへの重みと消耗を変える
+  const INSTR = {
+    stay: { name: '攻撃参加を控える', desc: '守備 +、攻撃 −' },
+    overlap: { name: '積極的に攻撃参加', desc: '攻撃 +、守備 −、消耗増' },
+    free: { name: '自由に動く', desc: '攻撃 +（ドリブル・パスの特徴で効果大）、守備 −' },
+    press: { name: 'プレスの先頭に立つ', desc: '中盤 +、消耗大' },
+    mark: { name: '相手エースをマーク', desc: '相手エースの力 −5%、自身の攻撃 −' },
+    hold: { name: '守備を免除', desc: '攻撃に専念、守備ほぼゼロ' }
+  };
+  function applyInstr(e, ins) {
+    const w = SLOT_W[e.slot].slice();
+    const t = has(e.p, 'ドリブル') || has(e.p, 'パス') ? 1.3 : 1;
+    if (ins === 'stay') { w[0] += 0.3; w[2] = Math.max(0, w[2] - 0.15); }
+    if (ins === 'overlap') { w[0] = Math.max(0, w[0] - 0.2); w[2] += 0.3; e.drainMul = 1.12; }
+    if (ins === 'free') { w[0] = Math.max(0, w[0] - 0.15); w[1] += 0.1; w[2] += 0.25 * t; }
+    if (ins === 'press') { e.press = true; e.drainMul = 1.2; }
+    if (ins === 'mark') { w[2] = Math.max(0, w[2] - 0.2); w[0] += 0.1; }
+    if (ins === 'hold') { w[0] = 0; w[1] = Math.max(0, w[1] - 0.1); w[2] += 0.2; }
+    e.w = w; e.instr = ins;
+  }
+
   function poisson(l) { const L = Math.exp(-l); let k = 0, p = 1; do { k++; p *= rnd(); } while (p > L); return k - 1; }
 
   // 日本以外の試合用の簡易シミュレーション
@@ -94,13 +115,14 @@
       this.events = [];
       this.teams = [this._initTeam(home, 0), this._initTeam(away, 1)];
       this.possAcc = [0, 0];
+      this.flags = [];
     }
 
     _initTeam(spec, side) {
       const byId = {};
       spec.players.forEach(p => { byId[p.id] = p; });
       const slots = FORMATIONS[spec.formation];
-      const onPitch = spec.xi.map((id, i) => this._entry(byId[id], slots[i][0]));
+      const onPitch = spec.xi.map((id, i) => this._entry(byId[id], slots[i][0], spec));
       return {
         spec, side, byId,
         onPitch,
@@ -113,9 +135,12 @@
       };
     }
 
-    _entry(p, slot) {
+    _entry(p, slot, spec) {
       const cond = p.cond == null ? 100 : p.cond;
-      return { p, slot, stamina: cond, yc: 0, sent: false, injured: false, rating: 0, goals: 0, assists: 0, shots: 0, sot: 0, saves: 0, minIn: this ? this.minute : 0, minOut: null };
+      const e = { p, slot, stamina: cond, yc: 0, sent: false, injured: false, rating: 0, goals: 0, assists: 0, shots: 0, sot: 0, saves: 0, minIn: this ? this.minute : 0, minOut: null };
+      const ins = spec && spec.instr && spec.instr[p.id];
+      if (ins && slot !== 'GK') applyInstr(e, ins);
+      return e;
     }
 
     eff(e) {
@@ -134,7 +159,7 @@
       for (const e of t.onPitch) {
         if (e.sent) continue;
         if (e.slot === 'GK') { gk = this.eff(e); continue; }
-        const w = SLOT_W[e.slot], v = this.eff(e);
+        const w = e.w || SLOT_W[e.slot], v = this.eff(e);
         for (let i = 0; i < 3; i++) { acc[i] += w[i] * v; ws[i] += w[i]; }
       }
       const s = t.spec, b = s.bonus || {};
@@ -143,6 +168,7 @@
       if (s.fam != null) common += (s.fam - 50) * 0.04;
       if (s.morale != null) common += (s.morale - 50) * 0.04;
       if (s.leader) common += s.leader;
+      if (s.pairs) common += s.pairs;
       if (!this.opts.neutral && t.side === 0) common += 1.5;
       if (s.homeBoost) common += s.homeBoost;
       const L = {
@@ -156,6 +182,11 @@
       if (m === 'def') { L.def += 2; L.att -= 2; }
       if (s.tactics.style === 'press') { const tired = this.minute > 65 ? -1.5 : 1.5; L.mid += tired; }
       if (s.tactics.style === 'pos') L.mid += 0.8;
+      // 天候とピッチ：パスをつなぐサッカーほど影響を受ける
+      const wx = this.opts.weather, pt = this.opts.pitch;
+      if (s.tactics.style === 'pos') { if (pt === '荒れ') L.mid -= 1.5; if (wx === '雨') L.mid -= 0.6; if (wx === '大雨' || wx === '雪') L.mid -= 1.4; }
+      const pressers = t.onPitch.filter(e => e.press && !e.sent).length;
+      if (pressers) L.mid += Math.min(1.2, pressers * 0.4) * (this.minute > 70 ? 0.4 : 1);
       if (opp && opp.spec.tactics.style === 'press' && s.tactics.style === 'pos') L.mid -= 0.5;
       return L;
     }
@@ -246,7 +277,7 @@
         if (rnd() < rate) this._shot(X, Y, LX, LY);
         if (rnd() < 0.05 * Math.sqrt(P[s] / 0.5)) this._setPiece(X, Y, LX, LY);
         if (rnd() < 0.0024 * Math.exp(0.02 * (LX.att - LY.def))) this._penalty(X, Y, LX, LY);
-        if (rnd() < 0.0185 * (xs.style === 'press' ? 1.2 : 1)) this._card(X);
+        if (rnd() < 0.0185 * (xs.style === 'press' ? 1.2 : 1) * ((this.opts.ref && this.opts.ref.strict) || 1)) this._card(X);
         for (const e of this.active(X)) {
           if (e.injured) continue;
           let ir = 0.00011 * (has(e.p, 'ガラスの体') ? 3 : 1) * (e.stamina < 40 ? 2 : 1);
@@ -254,8 +285,11 @@
         }
         // 体力消耗
         const heat = this.opts.heat && !X.spec.acclimatized ? 1.15 : 1;
-        const drain = 0.55 * (xs.style === 'press' ? 1.25 : 1) * (xs.ment === 'att' ? 1.05 : 1) * heat;
-        for (const e of this.active(X)) e.stamina = Math.max(5, e.stamina - drain * (e.slot === 'GK' ? 0.3 : 1) * (0.85 + rnd() * 0.3));
+        const wet = ['大雨', '雪'].includes(this.opts.weather) ? 1.06 : 1;
+        const drain = 0.55 * (xs.style === 'press' ? 1.25 : 1) * (xs.ment === 'att' ? 1.05 : 1) * heat * wet;
+        for (const e of this.active(X)) e.stamina = Math.max(5, e.stamina - drain * (e.drainMul || 1) * (e.slot === 'GK' ? 0.3 : 1) * (0.85 + rnd() * 0.3));
+        // 微妙な判定（ノーファウル）
+        if (rnd() < 0.0009) { this.flags.push({ side: s, type: 'noPen' }); this.log(s, 'var', `${this.teamName(s)}の選手がエリア内で倒れるもノーファウルの判定。抗議も認められず`); }
       }
       // クラブとの約束による出場時間の上限
       for (const t of this.teams) {
@@ -290,6 +324,12 @@
     }
 
     _goal(X, scorer, assist, how) {
+      if (!/PK/.test(how) && rnd() < 0.06) {
+        const why = pickW(['わずかにオフサイド', '直前のプレーでファウル', 'ハンドの判定'], () => 1);
+        this.flags.push({ side: X.side, type: 'varGoal' });
+        this.log(X.side, 'var', `${scorer.p.name}がネットを揺らすも、VARの結果${why}でゴール取り消し！`);
+        return false;
+      }
       this.score[X.side]++;
       scorer.goals++;
       if (assist) assist.assists++;
@@ -304,6 +344,7 @@
       if (!sh) return;
       const xs = X.spec.tactics, ys = Y.spec.tactics;
       let q = 0.09 * Math.exp(0.02 * (LX.att - LY.def) - 0.01 * (LY.gk - LX.att));
+      if (this.opts.weather === '雨') q *= 1.05; else if (this.opts.weather === '大雨') q *= 1.08;
       q *= Math.pow(clamp(this.eff(sh) / Math.max(50, LX.att), 0.6, 1.4), 1.5);
       if (has(sh.p, '決定力')) q *= 1.12;
       if (xs.style === 'counter' && (ys.ment === 'att' || ys.style === 'press')) q *= 1.2;
@@ -339,7 +380,7 @@
       const act = this.active(X);
       const sp = X.spec.setPlay || {};
       const spFam = sp.fam == null ? 50 : sp.fam;
-      const spMult = (X.spec.setPiece ? 1.3 : 1) * (0.85 + spFam / 333) * (X.spec.spWeak || 1);
+      const spMult = (X.spec.setPiece ? 1.3 : 1) * (0.85 + spFam / 333) * (X.spec.spWeak || 1) * (this.opts.weather === '強風' ? 0.85 : 1);
       // 相手の守り方
       const ysp = Y.spec.setPlay || {};
       const yAerial = this.active(Y).filter(e => ['CB', 'ST', 'DM'].includes(e.slot) && has(e.p, '空中戦')).length;
@@ -390,6 +431,7 @@
       const fouler = pickW(this.active(Y), e => DEF_W[e.slot]);
       if (!taker) return;
       this.log(X.side, 'pen', `PK獲得！ ${fouler ? fouler.p.name + 'がエリア内で倒した' : ''}`);
+      if (rnd() < 0.12) { this.flags.push({ side: X.side, type: 'varPen' }); this.log(X.side, 'var', 'VARがオンフィールドレビューを推奨…判定は覆りPKは取り消し'); return; }
       if (fouler && rnd() < 0.35) this._card(Y, fouler);
       const conv = clamp(0.76 + (this.eff(taker) - 78) * 0.005 - (LY.gk - 78) * 0.004, 0.55, 0.9);
       X.stats.shots++; X.stats.xg += 0.76; taker.shots++;
@@ -464,7 +506,7 @@
       X.bench = X.bench.filter(b => b !== p);
       e.minOut = this.minute;
       X.out.push(e);
-      const ne = this._entry(p, slotOverride || e.slot);
+      const ne = this._entry(p, slotOverride || e.slot, X.spec);
       ne.minIn = this.minute;
       X.onPitch[idx] = ne;
       X.subsLeft--;
@@ -560,10 +602,10 @@
         score: this.score.slice(), pens: this.pens, winner: this.winner(), possession: this.possession(),
         stats: this.teams.map(t => Object.assign({}, t.stats, { xg: Math.round(t.stats.xg * 100) / 100 })),
         players: this.teams.map(t => t.onPitch.concat(t.out).map(e => ({ id: e.p.id, name: e.p.name, slot: e.slot, minutes: e.minutes || 0, goals: e.goals, assists: e.assists, rating: e.final, yc: e.yc, red: e.sent, injured: e.injured, stamina: e.stamina }))),
-        events: this.events
+        events: this.events, flags: this.flags
       };
     }
   }
 
-  root.SBEngine = { FORMATIONS, SLOT_LABEL, POS_LABEL, POS_GROUP, SLOT_FIT, SLOT_W, MENT, STYLE, fit, MatchSim, quickSim, setRandom, normal, poisson, pickW, clamp };
+  root.SBEngine = { INSTR, FORMATIONS, SLOT_LABEL, POS_LABEL, POS_GROUP, SLOT_FIT, SLOT_W, MENT, STYLE, fit, MatchSim, quickSim, setRandom, normal, poisson, pickW, clamp };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -285,6 +285,14 @@ td.nm:hover { text-decoration: underline; }
 .clubreq { margin-top: 16px; border-top: 2px solid var(--line); padding-top: 12px; }
 .clubreq h3 { font-size: 13px; margin-bottom: 8px; }
 
+/* ---------- 相談・前日会見 ---------- */
+.consult { background: var(--panel-2); border-radius: 8px; padding: 12px 14px; }
+.hero-ask { background: rgba(255, 255, 255, .12); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; }
+.hero-ask p { margin: 4px 0 8px; }
+.hero .ans { background: rgba(255, 255, 255, .92); color: #131a2b; border-color: transparent; }
+.hero .ans .chip { background: #e3e9f8; color: #1d3a8f; }
+.ins span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 /* ---------- 試合 ---------- */
 .live { max-width: 980px; }
 .board { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; align-items: center; background: var(--ink); color: var(--panel); border-radius: 10px; padding: 14px 16px; }

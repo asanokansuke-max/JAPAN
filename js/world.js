@@ -281,7 +281,7 @@
       if (isYouth(p.club)) return;
       if (p.rumor) {
         const r = p.rumor; p.rumor = null;
-        if (rnd() < (summer ? 0.7 : 0.55)) moveClub(S, p, r.tier, r.reason, r.club);
+        if (r.force || rnd() < (summer ? 0.7 : 0.55)) moveClub(S, p, r.tier, r.reason, r.club);
         else if (relevant(S, p)) A.addNews('移籍', `${p.name}の${r.club}移籍は破談。${p.club}に残留する。`);
         return;
       }
