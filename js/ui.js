@@ -224,8 +224,12 @@
     const prep = S.phase === 'prep';
     const coach = r.coach;
     const swaps = coach.swaps.map((x, k) => {
-      const o = G.player(x.out), i = G.player(x.in);
-      if (!o || !i) return '';
+      const o = G.player(x.out), i = x.in ? G.player(x.in) : null;
+      if (!o) return '';
+      if (!i) {
+        const gone = !S.squad.includes(o.id);
+        return `<div class="sugg ${gone ? 'done' : ''}"><div><span class="chip bad">外す</span> ${pLink(o)}<div class="small muted">${pMeta(o)}</div><div class="small">${esc(x.outWhy)}</div></div>${gone ? '<span class="small muted">外した</span>' : `<button class="btn sm primary" data-act="call" data-id="${o.id}">外す</button>`}</div>`;
+      }
       const done = !S.squad.includes(o.id) && S.squad.includes(i.id);
       return `<div class="sugg ${done ? 'done' : ''}">
         <div class="sw"><div><span class="chip bad">外す</span> ${pLink(o)}<div class="small muted">${pMeta(o)}</div><div class="small">${esc(x.outWhy)}</div></div>
@@ -240,6 +244,7 @@
         ${coach.notes.map(n => `<p class="small" style="margin:0 0 6px">・${esc(n)}</p>`).join('')}
         <div class="row" style="margin:8px 0 12px">${recBtn}${prep ? '<button class="btn sm" data-act="tab" data-v="squad">招集画面へ</button>' : ''}</div>
         <div class="plist">${swaps}</div>
+        ${coach.injured && coach.injured.length ? `<h3 style="font-size:13px;margin:16px 0 6px">負傷で選外とする選手</h3><div class="plist">${coach.injured.map(x => { const p = G.player(x.id); return p ? `<div class="med bad"><div>${pLink(p)} <span class="small muted">${pMeta(p)}</span></div><div class="small">${esc(x.text)}</div></div>` : ''; }).join('')}</div>` : ''}
       </section>
       <div class="grid" style="align-content:start">
         <section class="card">${staffHead('scout')}<p class="quote">${r.scout.length ? '現地で見てきた選手を推薦します。' : '今回は特に推薦したい選手はいません。'}</p><div class="plist">${scout}</div></section>
@@ -278,6 +283,9 @@
     if (ui.q) ps = ps.filter(p => p.name.includes(ui.q) || p.club.includes(ui.q));
     if (ui.onlyCalled) ps = ps.filter(p => S.squad.includes(p.id));
     if (ui.abroad) ps = ps.filter(p => p.tier <= 4);
+    const STF = { inj: p => p.injury > 0, hot: p => p.form >= 1, cold: p => p.form <= -1, sharp: p => p.injury <= 0 && (p.sharp == null ? 70 : p.sharp) < 45, bench: p => p.status === 'bench' };
+    if (ui.st && STF[ui.st]) ps = ps.filter(STF[ui.st]);
+    const stCount = k => G.visible().filter(STF[k]).length;
     const key = {
       ovr: p => p.ovr, age: p => G.age(p), pot: p => { const r = G.potRange(p); return (r[0] + r[1]) / 2; }, form: p => p.form,
       caps: p => p.caps, chem: p => p.chem, name: p => p.name, pos: p => ['GK', 'CB', 'LB', 'RB', 'DM', 'CM', 'AM', 'LW', 'RW', 'ST'].indexOf(p.pos), club: p => p.tier
@@ -286,6 +294,7 @@
     const th = (k, l) => `<th data-act="sort" data-v="${k}">${l}${ui.sort === k ? (ui.dir < 0 ? ' ▼' : ' ▲') : ''}</th>`;
     return `<div class="filters">
         <div class="seg">${['ALL', 'GK', 'DF', 'MF', 'FW'].map(g => `<button data-act="group" data-v="${g}" aria-pressed="${ui.group === g}">${g === 'ALL' ? '全員' : g}</button>`).join('')}</div>
+        <div class="seg">${[['', '全状態'], ['inj', '負傷'], ['hot', '好調'], ['cold', '不調'], ['sharp', '試合勘↓'], ['bench', 'クラブで控え']].map(([k, l]) => `<button data-act="stf" data-v="${k}" aria-pressed="${(ui.st || '') === k}">${l}${k ? ` <span class="num">${stCount(k)}</span>` : ''}</button>`).join('')}</div>
         <input type="search" id="q" placeholder="選手名・クラブで検索" value="${esc(ui.q)}" aria-label="検索">
         <button class="btn sm" data-act="only-called" aria-pressed="${ui.onlyCalled}">${ui.onlyCalled ? '✓ ' : ''}招集中のみ</button>
         <button class="btn sm" data-act="abroad" aria-pressed="${ui.abroad}">${ui.abroad ? '✓ ' : ''}海外組のみ</button>
@@ -293,12 +302,12 @@
         <span class="small muted">招集 <b class="num" style="font-size:16px;color:var(--ink)">${S.squad.length}</b>/26 ${canCall ? '' : '（活動中は変更不可）'}</span>
       </div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>招集</th>${th('name', '選手')}${th('pos', 'ポジ')}${th('age', '年齢')}${th('club', 'クラブ')}<th>クラブでの立場・今季</th>${th('ovr', '能力')}${th('pot', '潜在')}${th('form', '調子')}${th('chem', '連携')}${th('caps', '出場/得点')}<th>状態</th></tr></thead>
+        <thead><tr><th>招集</th>${th('name', '選手')}${th('pos', 'ポジ')}${th('age', '年齢')}${th('club', 'クラブ')}<th>クラブでの立場・今季</th>${th('ovr', '能力')}${th('pot', '潜在')}${th('form', '調子')}${th('chem', '連携')}${th('caps', '出場/得点')}</tr></thead>
         <tbody>${ps.map(p => {
           const on = S.squad.includes(p.id);
           return `<tr class="${on ? 'called' : ''}">
             <td><button class="check" data-act="call" data-id="${p.id}" aria-pressed="${on}" aria-label="${esc(p.name)}を招集" ${canCall ? '' : 'disabled'}>${on ? '✓' : ''}</button></td>
-            <td class="nm" data-act="player" data-id="${p.id}">${esc(p.name)}${p.real ? '' : ' <span class="chip ai">新星</span>'}</td>
+            <td class="nm" data-act="player" data-id="${p.id}">${esc(p.name)}${p.real ? '' : ' <span class="chip ai">新星</span>'}<div class="chips">${stateChips(p, { rumor: true })}</div></td>
             <td>${posChip(p)}${p.alt.length ? ` <span class="muted small">${p.alt.map(a => E.POS_LABEL[a]).join('/')}</span>` : ''}</td>
             <td class="num">${G.ageInt(p)}</td>
             <td><span class="tierdot t${p.tier}"></span>${esc(p.club)}</td>
@@ -307,8 +316,7 @@
             <td>${potText(p)}</td>
             <td>${formTag(p.form)}</td>
             <td class="num">${Math.round(p.chem)}</td>
-            <td class="num">${p.caps} / ${p.goals}</td>
-            <td>${stateChips(p, { rumor: true })}</td></tr>`;
+            <td class="num">${p.caps} / ${p.goals}</td></tr>`;
         }).join('')}</tbody></table></div>
       <p class="small muted">クラブ格：<span class="tierdot t1"></span>欧州トップ <span class="tierdot t2"></span>欧州強豪 <span class="tierdot t3"></span>欧州主要 <span class="tierdot t4"></span>欧州中堅 <span class="tierdot t5"></span>国内/学生。上位クラブほど成長しやすいが、控えになると伸び悩む。</p>`;
   }
@@ -829,6 +837,7 @@
     sort(d) { if (ui.sort === d.v) ui.dir *= -1; else { ui.sort = d.v; ui.dir = d.v === 'name' || d.v === 'pos' || d.v === 'club' ? 1 : -1; } render(); },
     'only-called'() { ui.onlyCalled = !ui.onlyCalled; render(); },
     abroad() { ui.abroad = !ui.abroad; render(); },
+    stf(d) { ui.st = d.v; render(); },
     call(d) {
       const S = G.state();
       const i = S.squad.indexOf(d.id);
@@ -849,12 +858,12 @@
     'staff-swap'(d) {
       const S = G.state(); const x = S.cur.reports.coach.swaps[+d.k]; if (!x || S.phase !== 'prep') return;
       S.squad = S.squad.filter(id => id !== x.out); S.xi = S.xi.map(id => id === x.out ? null : id);
-      if (!S.squad.includes(x.in)) S.squad.push(x.in);
+      if (x.in && !S.squad.includes(x.in)) S.squad.push(x.in);
       G.save(); render(); toast(`${G.player(x.in).name}を招集し、${G.player(x.out).name}を外した`);
     },
     'staff-all'() {
       const S = G.state(); if (S.phase !== 'prep') return;
-      S.cur.reports.coach.swaps.forEach(x => { S.squad = S.squad.filter(id => id !== x.out); if (!S.squad.includes(x.in)) S.squad.push(x.in); });
+      S.cur.reports.coach.swaps.forEach(x => { S.squad = S.squad.filter(id => id !== x.out); if (x.in && !S.squad.includes(x.in)) S.squad.push(x.in); });
       S.xi = G.autoPick(S.squad, S.formation); G.save(); render(); toast('ヘッドコーチの提案をすべて採用した');
     },
     'staff-rec'() { const S = G.state(); if (S.phase !== 'prep') return; S.squad = S.cur.reports.coach.rec.slice(); S.xi = G.autoPick(S.squad, S.formation); G.save(); render(); toast('推奨の26人を招集リストにした'); },

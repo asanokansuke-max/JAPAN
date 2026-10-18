@@ -971,6 +971,8 @@
       if (!s) return null;
       S = JSON.parse(s); nextId = S.nextId || 10000;
       migrate(S);
+      // 古いスタッフ報告は作り直す（負傷者の扱いを改善したため）
+      if (S.phase === 'prep' && S.cur && (!S.cur.reports || !S.cur.reports.coach.injured)) refreshReports();
       return S;
     } catch (e) { return null; }
   }

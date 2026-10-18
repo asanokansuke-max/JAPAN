@@ -157,7 +157,8 @@ td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowra
 tr:last-child td { border-bottom: 0; }
 tr.called td { background: var(--ai-soft); }
 tr.me td { background: var(--ai-soft); font-weight: 700; }
-td.nm { font-weight: 700; cursor: pointer; }
+td.nm { font-weight: 700; cursor: pointer; white-space: normal; min-width: 170px; }
+td.nm .chips { font-weight: 400; }
 td.nm:hover { text-decoration: underline; }
 .tierdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 .tierdot.t1 { background: var(--gold); } .tierdot.t2 { background: var(--good); } .tierdot.t3 { background: var(--ai); } .tierdot.t4 { background: var(--ink-3); } .tierdot.t5, .tierdot.t6 { background: var(--line); border: 1px solid var(--ink-3); }

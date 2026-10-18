@@ -50,6 +50,7 @@
 
   function inReason(p) {
     const s = p.season || {};
+    if (p.status === 'bench' || sharp(p) < 45) return `${p.club}では出番が少ない（${seasonLine(p)}）が、能力は代表級。試合勘には注意が必要です`;
     if (p.form >= 1 && s.g >= 3) return `${p.club}で好調です。${seasonLine(p)}`;
     if (p.form >= 1) return `クラブでの評価が上がっています（${seasonLine(p)}）`;
     if (p.status === 'reg' && p.tier <= 3) return `${W.league(p.club)}の${p.club}で主力に定着しています`;
@@ -72,7 +73,7 @@
       const ins = rec.filter(id => !cur.includes(id)).map(G.player);
       const grp = p => E.POS_GROUP[p.pos];
       // 同じポジション群で入れ替えを組む
-      outs.sort((a, b) => value(a) - value(b));
+      outs.sort((a, b) => ((b.injury > 0) - (a.injury > 0)) || value(a) - value(b));
       const used = new Set();
       for (const o of outs) {
         const i = ins.find(x => !used.has(x.id) && grp(x) === grp(o)) || ins.find(x => !used.has(x.id) && o.pos !== 'GK' && x.pos !== 'GK');
@@ -80,9 +81,15 @@
         used.add(i.id);
         coach.swaps.push({ out: o.id, in: i.id, outWhy: outReason(o), inWhy: inReason(i) });
       }
-      coach.swaps = coach.swaps.slice(0, 6);
+      const hurt = coach.swaps.filter(x => G.player(x.out).injury > 0);
+      coach.swaps = hurt.concat(coach.swaps.filter(x => !hurt.includes(x)).slice(0, Math.max(0, 6 - hurt.length)));
+      // 代わりが見つからなかった負傷者も外す提案に含める
+      outs.filter(o => o.injury > 0 && !coach.swaps.some(x => x.out === o.id)).forEach(o => coach.swaps.unshift({ out: o.id, in: null, outWhy: outReason(o), inWhy: '' }));
       coach.summary = coach.swaps.length ? `前回のメンバーから${coach.swaps.length}件の入れ替えを提案します。クラブでの状態を見て判断しました。` : '前回のメンバーで問題ありません。全員クラブで順調です。';
     }
+    // 負傷で選外にした主な選手
+    coach.injured = G.visible().filter(p => p.injury > 0 && (cur.includes(p.id) || (S.cur.prevSquad || []).includes(p.id) || p.chem >= 40 || p.ovr >= 74 || p.caps > 0))
+      .sort((a, b) => b.ovr - a.ovr).map(p => ({ id: p.id, text: `${W.injText(p)}。${W.returnDateText(S, p)}の復帰見込みのため、今回は選外とします。` }));
     const gk = cur.map(G.player).filter(p => p && p.pos === 'GK' && G.available(p)).length;
     if (cur.length && gk < 3) coach.notes.push(`使えるGKが${gk}人しかいません。最低3人は必要です。`);
     if (ev.kind === 'tour') coach.notes.push('大会中はメンバーを入れ替えられません。複数ポジションをこなせる選手が重宝します。');
@@ -109,7 +116,7 @@
     if (jl) add(jl, 'Jリーグ', `J1で存在感。${seasonLine(jl)}。国内組からの推薦です。`);
 
     // メディカル
-    const watch = G.active().filter(p => cur.includes(p.id) || rec.includes(p.id) || p.chem >= 40 || p.ovr >= 76);
+    const watch = G.visible().filter(p => cur.includes(p.id) || rec.includes(p.id) || (S.cur.prevSquad || []).includes(p.id) || p.chem >= 30 || p.ovr >= 72 || p.caps > 0);
     const medical = [];
     watch.forEach(p => {
       if (p.injury > 0) medical.push({ id: p.id, lv: 'bad', text: `${W.injText(p)}。${W.returnDateText(S, p)}の復帰見込み。` });
@@ -121,8 +128,9 @@
     // 疲労の報告は特に稼働の多い3人まで
     const tired = medical.filter(m => m.load).sort((a, b) => b.load - a.load).slice(3).map(m => m.id);
     for (let i = medical.length - 1; i >= 0; i--) if (tired.includes(medical[i].id) && medical[i].load) medical.splice(i, 1);
-    medical.sort((a, b) => (cur.includes(b.id) - cur.includes(a.id)) || (a.lv === 'bad' ? -1 : 1));
-    return { coach, scout: picks.slice(0, 5), medical: medical.slice(0, 10), made: S.date.y * 100 + S.date.m };
+    const lvRank = { bad: 0, warn: 1, info: 2 };
+    medical.sort((a, b) => (lvRank[a.lv] - lvRank[b.lv]) || (cur.includes(b.id) - cur.includes(a.id)) || (G.player(b.id).ovr - G.player(a.id).ovr));
+    return { coach, scout: picks.slice(0, 5), medical: medical.slice(0, 16), made: S.date.y * 100 + S.date.m };
   }
 
   // 試合前：分析担当のレポート
