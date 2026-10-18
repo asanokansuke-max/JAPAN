@@ -550,9 +550,9 @@
     if (S.comps.q2) comps.push(`<section class="card"><h2>W杯アジア2次予選<span class="sub">上位2位が最終予選へ</span></h2>${groupTable(S.comps.q2, 'グループ' + S.comps.q2.name)}${fixtures(S.comps.q2)}</section>`);
     if (S.comps.asiancup) comps.push(tourView(S.comps.asiancup));
     void ev;
-    return `<div class="grid g2" style="grid-template-columns:minmax(0,1fr) minmax(0,1.6fr)">
+    return `<div class="grid">
       <section class="card"><h2>日程<span class="sub">2026年10月〜2030年7月</span></h2><ul class="timeline">${cal}</ul></section>
-      <div class="grid" style="align-content:start">${comps.join('') || '<section class="card"><p class="muted">公式大会はまだ始まっていない。最初の公式戦は2027年1月のアジアカップ。</p></section>'}</div></div>`;
+      ${comps.join('') || '<section class="card"><p class="muted">公式大会はまだ始まっていない。最初の公式戦は2027年1月のアジアカップ。</p></section>'}</div>`;
   }
 
   // ---------- 記録 ----------

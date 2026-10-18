@@ -970,9 +970,26 @@
       const s = localStorage.getItem(SAVE_KEY);
       if (!s) return null;
       S = JSON.parse(s); nextId = S.nextId || 10000;
+      migrate(S);
       return S;
     } catch (e) { return null; }
   }
+  // 旧バージョンのセーブに足りない項目を補う
+  function migrate(s) {
+    if (s.morale == null) s.morale = 60;
+    if (s.fans == null) s.fans = 55;
+    s.setPlay = Object.assign({ ck: 'mix', defend: 'zone', ckTaker: null, fkTaker: null, pkTaker: null }, s.setPlay || {});
+    if (s.spFam == null) s.spFam = 40;
+    s.players.forEach(p => { if (p.mood == null) p.mood = 0; if (p.hidden == null) p.hidden = false; });
+    if (s.cur) {
+      if (!s.cur.prevSquad) s.cur.prevSquad = s.squad.slice();
+      if (!s.cur.trips && root.SBCamp && s.phase === 'prep') { S = s; s.cur.trips = root.SBCamp.makeTrips(); }
+      if (s.phase === 'camp' && !s.cur.camp) s.cur.camp = { days: 3, done: [], log: [], bonus: {} };
+      if (s.phase === 'press' && !s.cur.press) s.phase = 'announce';
+      if (s.phase === 'announce' && !s.cur.announce) s.phase = 'prep';
+    }
+  }
+
   function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* 無視 */ } }
   function state() { return S; }
   function setState(s) { S = s; }

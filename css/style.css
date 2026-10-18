@@ -313,7 +313,7 @@ td.nm:hover { text-decoration: underline; }
 .rt.hi { background: var(--good); color: #fff; } .rt.lo { background: var(--bad); color: #fff; }
 
 /* ---------- 日程 ---------- */
-.timeline { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.timeline { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); column-gap: 24px; }
 .timeline li { display: grid; grid-template-columns: 86px 18px minmax(0, 1fr); gap: 10px; align-items: start; padding: 6px 0; }
 .timeline .d { font-family: var(--f-num); color: var(--ink-3); font-size: 14px; }
 .timeline .pt { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--ink-3); margin-top: 5px; background: var(--panel); }
