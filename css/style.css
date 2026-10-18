@@ -40,6 +40,7 @@
 
 * { box-sizing: border-box; }
 html, body { min-height: 100%; }
+html { scroll-padding-top: 130px; scroll-padding-bottom: 120px; }
 body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
 button { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--ai); outline-offset: 2px; }
@@ -293,6 +294,33 @@ td.nm:hover { text-decoration: underline; }
 .hero .ans .chip { background: #e3e9f8; color: #1d3a8f; }
 .ins span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* ---------- 作戦ボード ---------- */
+.board-wrap .pitch { max-width: 440px; }
+.slot { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.slot.dragging, .bitem.dragging { opacity: .35; }
+.slot.drop-over .shirt { box-shadow: 0 0 0 4px #ffd34d; }
+.bitem.drop-over { box-shadow: inset 0 0 0 2px var(--ai); }
+.slot.sent { opacity: .45; }
+.slot .stbar { width: 46px; height: 4px; border-radius: 2px; background: rgba(0, 0, 0, .35); overflow: hidden; }
+.slot .stbar i { display: block; height: 100%; background: #5ee08f; }
+.slot .stbar i.mid { background: #f0b43a; } .slot .stbar i.low { background: #ff6b60; }
+.slot .ins-dot { position: absolute; left: -6px; top: -6px; width: 16px; height: 16px; border-radius: 50%; background: #ffd34d; color: #1a1a1a; font-style: normal; font-size: 11px; font-weight: 700; display: grid; place-items: center; border: 1px solid #fff; }
+.benchrow { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.bitem { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 6px; align-items: center; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.bitem .pos { grid-row: span 2; }
+.bitem .bn { font-weight: 700; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bitem .bv .ovr { font-size: 15px; }
+.bitem .bc { grid-column: 2 / span 2; font-size: 10px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bitem.out { opacity: .5; }
+.drag-ghost { position: fixed; left: 0; top: 0; z-index: 40; pointer-events: none; margin: -18px 0 0 -40px; padding: 6px 12px; border-radius: 999px; background: var(--ai); color: #fff; font-weight: 700; font-size: 13px; box-shadow: 0 6px 16px rgba(0, 0, 0, .3); white-space: nowrap; }
+.overlay.top { z-index: 30; }
+.matchbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 8; background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -4px 14px rgba(0, 0, 0, .08); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.mb-in { max-width: 1180px; margin: 0 auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.mb-t { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
+.mb-t .small { color: var(--ink-3); }
+main.with-bar { padding-bottom: 110px; }
+.nextmatch { border-left: 4px solid var(--hi); }
+
 /* ---------- 試合 ---------- */
 .live { max-width: 980px; }
 .board { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; align-items: center; background: var(--ink); color: var(--panel); border-radius: 10px; padding: 14px 16px; }
@@ -365,6 +393,6 @@ td.nm:hover { text-decoration: underline; }
 .ending .res { font-family: var(--f-display); font-size: clamp(34px, 8vw, 64px); color: var(--hi); line-height: 1.1; margin: 10px 0; }
 .ending.champ .res { color: var(--gold); }
 .confirm { background: var(--hi-soft); border-radius: 8px; padding: 10px 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--hi); font-weight: 700; }
-.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--panel); padding: 10px 16px; border-radius: 8px; font-weight: 700; z-index: 30; font-size: 13px; max-width: calc(100% - 32px); }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--panel); padding: 10px 16px; border-radius: 8px; font-weight: 700; z-index: 30; font-size: 13px; max-width: calc(100% - 32px); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

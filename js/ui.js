@@ -113,7 +113,8 @@
     let body = '';
     if (S.phase === 'over' || S.phase === 'ended') body = ending(S);
     else body = ({ home, staff, players, squad, scout, tactics, schedule, records })[tab](S);
-    $('app').innerHTML = header(S) + `<main>${body}</main>`;
+    const bar = (S.phase === 'match') ? matchBar(S) : '';
+    $('app').innerHTML = header(S) + `<main class="${bar ? 'with-bar' : ''}">${body}</main>` + bar;
     renderModal();
   }
 
@@ -545,10 +546,10 @@
   }
 
   function instrCard(S) {
-    const F = E.FORMATIONS[S.formation];
+    const F = G.slotsOf();
     const rows = S.xi.map((id, i) => {
-      const p = G.player(id); if (!p || F[i][0] === 'GK') return '';
-      return `<label class="spsel ins"><span>${E.SLOT_LABEL[F[i][0]]} ${esc(p.name)}</span><select data-ins="${p.id}" id="ins-${i}"><option value="">標準</option>${Object.entries(E.INSTR).map(([k, x]) => `<option value="${k}" ${S.instr[p.id] === k ? 'selected' : ''}>${x.name}</option>`).join('')}</select></label>`;
+      const p = G.player(id); if (!p || F[i] === 'GK') return '';
+      return `<label class="spsel ins"><span>${E.SLOT_LABEL[F[i]]} ${esc(p.name)}</span><select data-ins="${p.id}" id="ins-${i}"><option value="">標準</option>${Object.entries(E.INSTR).map(([k, x]) => `<option value="${k}" ${S.instr[p.id] === k ? 'selected' : ''}>${x.name}</option>`).join('')}</select></label>`;
     }).join('');
     return `<section class="card"><h2>個別指示<span class="sub">選手ごとの役割</span></h2><div class="spgrid">${rows}</div>
       <p class="small muted" style="margin:8px 0 0">${Object.values(E.INSTR).map(x => `${x.name}：${x.desc}`).join(' ／ ')}</p></section>`;
@@ -580,28 +581,82 @@
     </section>`;
   }
 
+  // ---------- 作戦ボード（ドラッグ＆ドロップ・タップ・長押し） ----------
+  function boardData(mode) {
+    const S = G.state();
+    if (mode === 'live') {
+      const sim = live.sim, T = sim.teams[sim.userSide];
+      const lay = E.layout(T.spec.formation, T.onPitch.map(e => e.slot));
+      return {
+        formation: T.spec.formation, subsLeft: T.subsLeft,
+        slots: T.onPitch.map((e, i) => ({ i, role: e.slot, x: lay[i][1], y: lay[i][2], p: e.p, val: Math.round(sim.eff(e)), fit: E.fit(e.p, e.slot), stamina: Math.round(e.stamina), sent: e.sent, injured: e.injured, yc: e.yc, instr: e.instr, captain: e.p.id === S.captain })),
+        bench: T.bench.slice().sort((a, b) => b.ovr - a.ovr).map(p => ({ p, cond: p.cond }))
+      };
+    }
+    const lay = E.layout(S.formation, G.rolesOf());
+    return {
+      formation: S.formation,
+      slots: lay.map((sl, i) => { const p = G.player(S.xi[i]); return { i, role: sl[0], x: sl[1], y: sl[2], p, val: p ? Math.round(p.ovr * E.fit(p, sl[0])) : null, fit: p ? E.fit(p, sl[0]) : 0, out: p && !G.available(p), instr: p && S.instr[p.id], captain: p && p.id === S.captain }; }),
+      bench: S.squad.filter(id => !S.xi.includes(id)).map(G.player).filter(Boolean).sort((a, b) => b.ovr - a.ovr).map(p => ({ p, cond: p.cond, out: !G.available(p) }))
+    };
+  }
+
+  function tacticBoard(mode) {
+    const d = boardData(mode);
+    const sel = mode === 'live' ? live.sel : null;
+    const slots = d.slots.map(x => {
+      const p = x.p;
+      const st = x.stamina;
+      return `<div class="slot ${x.role === 'GK' ? 'gk' : ''} ${p ? '' : 'empty'} ${x.sent ? 'sent' : ''} ${sel === x.i ? 'sel' : ''}" style="left:${x.x}%;top:${x.y}%" data-drag="slot" data-drop="slot" data-i="${x.i}" tabindex="0" role="button" aria-label="${E.SLOT_LABEL[x.role]} ${p ? esc(p.name) : '未選択'}">
+        <span class="shirt">${p ? x.val : '+'}${x.captain ? '<i class="arm">C</i>' : ''}${x.instr ? '<i class="ins-dot" title="個別指示あり">!</i>' : ''}</span><span class="nm">${p ? esc(p.name) : '選択'}</span>
+        <span class="lb">${E.SLOT_LABEL[x.role]}${x.out ? ' ・ 出場不可' : ''}${x.sent ? ' ・ 退場' : ''}${x.injured ? ' ・ 負傷' : ''}${x.yc ? ' ・ 警告' : ''}</span>
+        ${st != null && !x.sent ? `<span class="stbar"><i class="${st < 45 ? 'low' : st < 65 ? 'mid' : ''}" style="width:${st}%"></i></span>` : ''}
+        ${p && x.fit < 0.95 ? `<span class="fit">適性 ${Math.round(x.fit * 100)}%</span>` : ''}</div>`;
+    }).join('');
+    const selRole = sel != null && d.slots[sel] ? d.slots[sel].role : null;
+    const bench = d.bench.map(b => {
+      const f = selRole ? E.fit(b.p, selRole) : null;
+      return `<div class="bitem ${b.out ? 'out' : ''}" data-drag="bench" data-drop="bench" data-id="${b.p.id}" tabindex="0" role="button" aria-label="控え ${esc(b.p.name)}">${posChip(b.p)}<span class="bn">${esc(b.p.name)}</span><span class="bv">${ovrTag(f ? b.p.ovr * f : b.p.ovr)}</span><span class="bc">${f ? `適性${Math.round(f * 100)}%` : `調子${FORM5(b.p.form)[1]}`}・体力${Math.round(b.cond)}</span></div>`;
+    }).join('');
+    const hint = mode === 'live'
+      ? `ドラッグで入れ替え・交代（ベンチ→ピッチで交代、交代枠 残り${d.subsLeft}）。タップでも選手→控えの順で交代できる。長押しで役割と個別指示。`
+      : 'ドラッグで入れ替え（控えからピッチへ落とすと先発に）。タップで選手を選ぶ。長押しで役割（例：DMF→CMF）と個別指示。';
+    return `<div class="board-wrap" data-board="${mode}">
+      <div class="pitch">${pitchSVG()}${slots}</div>
+      <p class="small muted" style="margin:8px 0">${hint}</p>
+      <div class="benchrow">${bench || '<span class="muted small">控えなし</span>'}</div>
+    </div>`;
+  }
+
+  // 次の試合の要点（戦術画面からそのまま試合へ）
+  function nextMatchCard(S) {
+    if (S.phase !== 'match') return '';
+    const fx = G.nextFixture();
+    if (!fx) return '';
+    const a = ST.analyst(fx);
+    const cd = G.oppPlan(fx).cond;
+    const applied = S.tactics.ment === a.rec.ment && S.tactics.style === a.rec.style;
+    return `<section class="card nextmatch"><h2>次の試合<span class="sub">${esc(fx.label)}</span></h2>
+      <p style="margin:0 0 6px"><b>日本 vs ${esc(G.nname(fx.opp))}</b> ・ 相手は${esc(a.plan.formation)}の${E.MENT[a.plan.ment]}／${E.STYLE[a.plan.style]}${cd ? ` ・ ${esc(cd.weather)}・ピッチ${esc(cd.pitch)}` : ''} ・ プレッシャー${LF.pressureLabel(LF.pressure(fx))}</p>
+      <p class="small muted" style="margin:0 0 8px">分析担当の推奨：${E.MENT[a.rec.ment]}／${E.STYLE[a.rec.style]}。${esc(a.why)}</p>
+      <div class="row">${applied ? '<span class="chip good">推奨の作戦を適用中</span>' : `<button class="btn sm" data-act="apply-plan" data-m="${a.rec.ment}" data-s="${a.rec.style}">推奨の作戦にする</button>`}<button class="btn sm" data-act="tab" data-v="staff">分析の詳細</button></div></section>`;
+  }
+
   function tactics(S) {
-    const F = E.FORMATIONS[S.formation];
     if (!S.squad.length) return `<section class="card"><h2>戦術</h2><p>まず招集メンバーを決めてください。</p><button class="btn primary" data-act="tab" data-v="squad">招集へ</button></section>`;
     if (S.xi.length !== 11) S.xi = G.autoPick(S.squad, S.formation);
-    const slots = F.map((s, i) => {
-      const p = G.player(S.xi[i]);
-      const fit = p ? E.fit(p, s[0]) : 0;
-      return `<button class="slot ${s[0] === 'GK' ? 'gk' : ''} ${p ? '' : 'empty'}" style="left:${s[1]}%;top:${s[2]}%" data-act="slot" data-i="${i}" aria-label="${E.SLOT_LABEL[s[0]]} ${p ? esc(p.name) : '未選択'}">
-        <span class="shirt">${p ? Math.round(p.ovr * fit) : '+'}${p && p.id === S.captain ? '<i class="arm">C</i>' : ''}</span><span class="nm">${p ? esc(p.name) : '選択'}</span><span class="lb">${E.SLOT_LABEL[s[0]]}${p && !G.available(p) ? ' ・ 出場不可' : ''}</span>${p && fit < 0.95 ? `<span class="fit">適性 ${Math.round(fit * 100)}%</span>` : ''}</button>`;
-    }).join('');
-    const bench = S.squad.filter(id => !S.xi.includes(id)).map(G.player).filter(Boolean).sort((a, b) => b.ovr - a.ovr);
     const L = lineEstimate(S);
     const bar = (l, v) => `<div class="bar"><span>${l}</span><span class="tr"><i style="width:${Math.max(0, Math.min(100, (v - 60) * 3.3))}%"></i></span><b>${Math.round(v)}</b></div>`;
     return `<div class="grid g2">
-      <section class="card"><h2>スターティングイレブン<span class="sub">選手をタップして入れ替え</span></h2>
-        <div class="pitch">${pitchSVG()}${slots}</div>
-        <div class="row" style="margin-top:12px;justify-content:center"><button class="btn sm" data-act="auto-xi">ベストメンバーを自動選択</button></div>
+      <section class="card"><h2>作戦ボード<span class="sub">${esc(S.formation)}</span></h2>
+        ${tacticBoard('pre')}
+        <div class="row" style="margin-top:12px;justify-content:center"><button class="btn sm" data-act="auto-xi">ベストメンバーを自動選択</button>${G.rolesOf() ? '<button class="btn sm" data-act="reset-roles">役割を基本形に戻す</button>' : ''}</div>
       </section>
       <div class="grid" style="align-content:start">
+        ${nextMatchCard(S)}
         <section class="card"><h2>フォーメーション</h2>
           <div class="seg">${Object.keys(E.FORMATIONS).map(f => `<button data-act="formation" data-v="${f}" aria-pressed="${S.formation === f}">${f}</button>`).join('')}</div>
-          <p class="small muted" style="margin:8px 0 0">熟成度：${Object.entries(S.fam).map(([f, v]) => `${f} <b class="num">${Math.round(v)}</b>`).join(' ・ ')}</p>
+          <p class="small muted" style="margin:8px 0 0">熟成度：${Object.entries(S.fam).map(([f, v]) => `${f} <b class="num">${Math.round(v)}</b>`).join(' ・ ')}。変更しても先発の11人はそのまま配置し直す。</p>
           <h2 style="margin-top:16px;font-size:15px">メンタリティ</h2>
           <div class="seg" style="margin-top:8px">${Object.entries(E.MENT).map(([k, l]) => `<button data-act="ment" data-v="${k}" aria-pressed="${S.tactics.ment === k}">${l}</button>`).join('')}</div>
           <h2 style="margin-top:16px;font-size:15px">スタイル</h2>
@@ -609,14 +664,38 @@
           <p class="small muted" style="margin:8px 0 0">${({ bal: '状況に応じて戦う標準的なスタイル。', pos: 'ボールを保持して中盤を支配。相手のハイプレスにはやや弱い。', counter: '保持率は下がるが、前がかりの相手を一撃で仕留める。', press: '前線から奪いに行き相手のシュートを減らすが、後半に消耗する。' })[S.tactics.style]}</p>
           <div class="row" style="margin-top:14px"><button class="btn sm" data-act="autosub" aria-pressed="${S.autoSub}">${S.autoSub ? '✓ ' : ''}交代をコーチに任せる</button></div>
         </section>
-        ${instrCard(S)}
-        ${pairCard(S)}
-        ${setPieceCard(S)}
         <section class="card"><h2>推定戦力<span class="sub">連携 ${Math.round(G.teamChem(S.xi))} ・ 熟成 ${Math.round(S.fam[S.formation])}</span></h2>
           ${L ? `<div class="bars">${bar('攻撃', L.att)}${bar('中盤', L.mid)}${bar('守備', L.def)}${bar('GK', L.gk)}</div>` : '<p class="muted">11人を選ぶと表示</p>'}
         </section>
-        <section class="card"><h2>ベンチ<span class="sub num">${bench.length}人</span></h2><div class="plist">${bench.map(p => `<div class="pitem">${posChip(p)}<div style="min-width:0"><div class="n" data-act="player" data-id="${p.id}">${esc(p.name)} ${injTag(p)}</div><div class="c">コンディション ${Math.round(p.cond)} ・ 連携 ${Math.round(p.chem)}</div></div>${ovrTag(p.ovr)}${formTag(p.form)}</div>`).join('')}</div></section>
+        ${instrCard(S)}
+        ${pairCard(S)}
+        ${setPieceCard(S)}
       </div></div>`;
+  }
+
+  // 長押しメニュー：役割と個別指示
+  function roleModal(S, m) {
+    let p, cur, base, ins;
+    if (m.mode === 'live') {
+      const sim = live.sim, T = sim.teams[sim.userSide], e = T.onPitch[m.i];
+      if (!e) return '';
+      p = e.p; cur = e.slot; ins = e.instr || null;
+      base = E.FORMATIONS[T.spec.formation][m.i][0];
+    } else {
+      p = G.player(S.xi[m.i]);
+      cur = G.slotsOf()[m.i]; base = E.FORMATIONS[S.formation][m.i][0];
+      ins = p ? S.instr[p.id] : null;
+    }
+    if (!p) return '';
+    const roles = [...new Set([base].concat(E.ROLE_ALTS[base] || [], E.ROLE_ALTS[cur] || [], [cur]))].filter(r => r !== 'GK' || base === 'GK');
+    return `<div class="overlay top" data-act="close-bg"><div class="modal" role="dialog" aria-modal="true" aria-label="役割と指示">
+      <div class="modal-h"><div><div class="eyebrow">${m.mode === 'live' ? '試合中の変更' : '作戦ボード'}</div><h2>${esc(p.name)}</h2><p class="small muted" style="margin:2px 0 0">現在：${E.SLOT_LABEL[cur]}${ins ? ` ・ ${E.INSTR[ins].name}` : ''}</p></div><button class="x" data-act="close" aria-label="閉じる">×</button></div>
+      ${cur === 'GK' ? '<p class="small muted">GKの役割は変更できない。</p>' : `<h3 style="font-size:13px;margin:0 0 6px">役割</h3>
+      <div class="trainings">${roles.map(r => `<button class="train" data-act="role-set" data-i="${m.i}" data-v="${r}" aria-pressed="${r === cur}"><b>${E.SLOT_LABEL[r]}${r === base ? ' <span class="muted small">基本</span>' : ''}</b><span>適性 ${Math.round(E.fit(p, r) * 100)}%</span></button>`).join('')}</div>
+      <h3 style="font-size:13px;margin:14px 0 6px">個別指示</h3>
+      <div class="trainings"><button class="train" data-act="ins-set" data-i="${m.i}" data-v="" aria-pressed="${!ins}"><b>標準</b><span>指示なし</span></button>${Object.entries(E.INSTR).map(([k, x]) => `<button class="train" data-act="ins-set" data-i="${m.i}" data-v="${k}" aria-pressed="${ins === k}"><b>${x.name}</b><span>${x.desc}</span></button>`).join('')}</div>`}
+      ${m.mode === 'pre' ? `<div class="row" style="margin-top:14px"><button class="btn sm" data-act="slot" data-i="${m.i}">選手を変更</button><button class="btn sm" data-act="player" data-id="${p.id}">選手の詳細</button></div>` : ''}
+    </div></div>`;
   }
 
   // ---------- 日程・大会 ----------
@@ -701,6 +780,29 @@
     const S = G.state();
     if (m.type === 'player') host.innerHTML = playerModal(S, G.player(m.id));
     if (m.type === 'slot') host.innerHTML = slotModal(S, m.i);
+    if (m.type === 'role') host.innerHTML = roleModal(S, m);
+    if (m.type === 'prepress' || m.type === 'leave') host.innerHTML = taskModal(S, m.type);
+  }
+
+  function taskModal(S, type) {
+    const fx = G.nextFixture();
+    if (!fx) return '';
+    let body = '';
+    if (type === 'leave' && S.cur.leaveReq) body = `<p>${esc(S.cur.leaveReq.text)}</p><div class="answers"><button class="ans" data-act="leave" data-v="allow"><span class="chip good">許可</span><span>家族を優先してほしい（離脱）</span></button><button class="ans" data-act="leave" data-v="refuse"><span class="chip">残留</span><span>チームに残ってほしい</span></button></div>`;
+    if (type === 'prepress') { const q = LF.prePressQuestion(fx); body = `<p>${esc(q.q)}</p><div class="answers">${q.a.map(([k, tone, t]) => `<button class="ans" data-act="prepress" data-v="${k}"><span class="chip">${tone}</span><span>${esc(t)}</span></button>`).join('')}</div><p class="small muted" style="margin:8px 0 0">強気は士気が上がるが重圧も増す。平常心は重圧を和らげ、選手を守れば若手が硬くなりにくい。</p>`; }
+    return `<div class="overlay" data-act="close-bg"><div class="modal" role="dialog" aria-modal="true"><div class="modal-h"><div><div class="eyebrow">${esc(fx.label)}</div><h2>${type === 'leave' ? '選手からの申し出' : '前日会見'}</h2></div><button class="x" data-act="close" aria-label="閉じる">×</button></div>${body}</div></div>`;
+  }
+
+  // どのタブからでも試合へ進めるバー
+  function matchBar(S) {
+    if (S.phase !== 'match' || live) return '';
+    const fx = G.nextFixture();
+    if (!fx) return `<div class="matchbar"><div class="mb-in"><span><b>全試合終了</b></span><span class="spacer"></span><button class="btn go" data-act="end-event">活動を締めくくる</button></div></div>`;
+    const pend = S.cur.leaveReq ? ['leave', '申し出に回答'] : LF.needsPrePress(fx) ? ['prepress', '前日会見に臨む'] : null;
+    return `<div class="matchbar"><div class="mb-in"><span class="mb-t"><span class="small">${esc(fx.label)}</span><b>日本 vs ${esc(G.nname(fx.opp))}</b></span><span class="spacer"></span>
+      ${tab !== 'tactics' ? '<button class="btn" data-act="tab" data-v="tactics">作戦ボード</button>' : ''}
+      ${pend ? `<button class="btn primary" data-act="task" data-v="${pend[0]}">${pend[1]}</button>` : ''}
+      <button class="btn go" data-act="kickoff" ${pend ? 'disabled' : ''}>キックオフ</button></div></div>`;
   }
 
   function spark(hist) {
@@ -770,7 +872,7 @@
   }
 
   function slotModal(S, i) {
-    const slot = E.FORMATIONS[S.formation][i][0];
+    const slot = G.slotsOf()[i];
     const cands = S.squad.map(G.player).filter(Boolean).map(p => ({ p, v: p.ovr * E.fit(p, slot), f: E.fit(p, slot) })).sort((a, b) => b.v - a.v);
     return `<div class="overlay" data-act="close-bg"><div class="modal" role="dialog" aria-modal="true" aria-label="選手選択">
       <div class="modal-h"><div><div class="eyebrow">スロット</div><h2>${E.SLOT_LABEL[slot]} に起用する選手</h2></div><button class="x" data-act="close" aria-label="閉じる">×</button></div>
@@ -870,24 +972,19 @@
 
   function panelHTML() {
     const sim = live.sim, us = sim.userSide, T = sim.teams[us];
-    const items = T.onPitch.map((e, i) => {
-      const st = Math.round(e.stamina);
-      return `<button class="op ${e.sent ? 'out' : ''}" data-act="${e.sent ? '' : 'live-sel'}" data-i="${i}" aria-pressed="${live.sel === i}"><span class="num muted">${E.SLOT_LABEL[e.slot]}</span><span>${esc(e.p.name)}${e.yc ? ' <span class="chip">警告</span>' : ''}${e.injured ? ' <span class="chip bad">負傷</span>' : ''}${e.sent ? ' 退場' : ''}</span><span class="stm"><i class="${st < 45 ? 'low' : st < 65 ? 'mid' : ''}" style="width:${st}%"></i></span><span class="num">${Math.round(sim.eff(e))}</span></button>`;
-    }).join('');
-    const bench = T.bench.slice().sort((a, b) => b.ovr - a.ovr).map(p => {
-      const slot = live.sel != null ? T.onPitch[live.sel].slot : null;
-      const f = slot ? E.fit(p, slot) : 1;
-      return `<div class="pitem">${posChip(p)}<div style="min-width:0"><div class="n">${esc(p.name)}</div><div class="c">${slot ? `${E.SLOT_LABEL[slot]}適性 ${Math.round(f * 100)}% ・ ` : ''}コンディション ${Math.round(p.cond)}</div></div>${ovrTag(p.ovr * f)}<button class="btn sm" data-act="live-sub" data-id="${p.id}" ${live.sel == null || T.subsLeft <= 0 ? 'disabled' : ''}>投入</button></div>`;
-    }).join('');
-    return `<section class="card" style="margin-top:14px"><h2>采配<span class="sub">交代枠 残り${T.subsLeft}</span></h2>
+    return `<section class="card" style="margin-top:14px"><h2>采配<span class="sub">交代枠 残り${T.subsLeft} ・ ${esc(T.spec.formation)}</span></h2>
       <div class="grid g2">
-        <div><div class="eyebrow" style="margin-bottom:6px">ピッチ上（交代する選手を選択）</div><div class="onpitch">${items}</div></div>
+        <div>${tacticBoard('live')}</div>
         <div>
-          <div class="eyebrow" style="margin-bottom:6px">メンタリティ</div>
+          <div class="eyebrow" style="margin-bottom:6px">フォーメーション</div>
+          <div class="seg">${Object.keys(E.FORMATIONS).map(f => `<button data-act="live-form" data-v="${f}" aria-pressed="${T.spec.formation === f}">${f}</button>`).join('')}</div>
+          <p class="small muted" style="margin:6px 0 0">ピッチ上の選手を新しい形に適性順で配置し直す。</p>
+          <div class="eyebrow" style="margin:12px 0 6px">メンタリティ</div>
           <div class="seg">${Object.entries(E.MENT).map(([k, l]) => `<button data-act="live-ment" data-v="${k}" aria-pressed="${T.spec.tactics.ment === k}">${l}</button>`).join('')}</div>
-          <div class="eyebrow" style="margin:10px 0 6px">スタイル</div>
+          <div class="eyebrow" style="margin:12px 0 6px">スタイル</div>
           <div class="seg">${Object.entries(E.STYLE).map(([k, l]) => `<button data-act="live-style" data-v="${k}" aria-pressed="${T.spec.tactics.style === k}">${l}</button>`).join('')}</div>
-          <div class="eyebrow" style="margin:12px 0 6px">ベンチ</div><div class="plist" style="max-height:300px;overflow-y:auto">${bench || '<span class="muted small">控えなし</span>'}</div>
+          <div class="eyebrow" style="margin:12px 0 6px">ピッチ上の状態</div>
+          <div class="onpitch">${T.onPitch.map((e, i) => { const st = Math.round(e.stamina); return `<div class="op ${e.sent ? 'out' : ''}"><span class="num muted">${E.SLOT_LABEL[e.slot]}</span><span>${esc(e.p.name)}${e.yc ? ' <span class="chip">警告</span>' : ''}${e.injured ? ' <span class="chip bad">負傷</span>' : ''}${e.sent ? ' 退場' : ''}${e.instr ? ` <span class="chip ai">${E.INSTR[e.instr].name}</span>` : ''}</span><span class="stm"><i class="${st < 45 ? 'low' : st < 65 ? 'mid' : ''}" style="width:${st}%"></i></span><span class="num">${Math.round(sim.eff(e))}</span></div>`; }).join('')}</div>
         </div>
       </div></section>`;
   }
@@ -985,8 +1082,8 @@
     announce() { if (G.announce()) { tab = 'home'; render(); window.scrollTo(0, 0); } },
     'press-start'() { G.startPress(); render(); },
     consult(d) { const r = LF.resolveConsult(+d.i, d.v); render(); if (r) toast(r); },
-    leave(d) { const r = LF.resolveLeave(d.v); render(); if (r) toast(r); },
-    prepress(d) { const fx = G.nextFixture(); if (fx) { LF.answerPrePress(fx, d.v); render(); toast('前日会見を終えた'); } },
+    leave(d) { const r = LF.resolveLeave(d.v); if (ui.modal && ui.modal.type === 'leave') ui.modal = null; render(); if (r) toast(r); },
+    prepress(d) { const fx = G.nextFixture(); if (fx) { LF.answerPrePress(fx, d.v); if (ui.modal && ui.modal.type === 'prepress') ui.modal = null; render(); toast('前日会見を終えた'); } },
     'club-req'(d) { X.resolveClub(+d.i, d.v === '1'); render(); },
     disc(d) { const l = X.resolveDiscipline(d.v); render(); if (l) toast(l); },
     focus(d) { const S = G.state(); const fx = G.nextFixture(); if (!fx) return; S.cur.focus = S.cur.focus || {}; S.cur.focus[X.focusKey(fx)] = d.v; G.save(); render(); toast(`分析の重点：${X.FOCUS[d.v].name}`); },
@@ -1010,7 +1107,26 @@
       S.xi[i] = d.id; ui.modal = null; G.save(); render();
     },
     'auto-xi'() { const S = G.state(); S.xi = G.autoPick(S.squad, S.formation); G.save(); render(); },
-    formation(d) { const S = G.state(); S.formation = d.v; S.xi = G.autoPick(S.squad, S.formation); G.save(); render(); },
+    formation(d) { const S = G.state(); S.formation = d.v; S.xi = G.remapXI(d.v); G.save(); render(); },
+    'reset-roles'() { const S = G.state(); delete S.roles[S.formation]; G.save(); render(); },
+    'role-set'(d) {
+      const m = ui.modal; if (!m) return;
+      if (m.mode === 'live') { live.sim.setRole(live.sim.userSide, +d.i, d.v); ui.modal = null; renderModal(); renderLive(); }
+      else { G.setRole(+d.i, d.v); ui.modal = null; render(); }
+      toast(`${E.SLOT_LABEL[d.v]}に変更した`);
+    },
+    'ins-set'(d) {
+      const m = ui.modal; if (!m) return;
+      if (m.mode === 'live') { live.sim.setInstr(live.sim.userSide, +d.i, d.v || null); ui.modal = null; renderModal(); renderLive(); }
+      else { const S = G.state(); const id = S.xi[+d.i]; if (d.v) S.instr[id] = d.v; else delete S.instr[id]; G.save(); ui.modal = null; render(); }
+      toast(d.v ? `指示：${E.INSTR[d.v].name}` : '個別指示を解除した');
+    },
+    task(d) { ui.modal = { type: d.v }; renderModal(); },
+    'live-form'(d) {
+      const S = G.state(); const sim = live.sim;
+      sim.changeFormation(sim.userSide, d.v, (S.roles || {})[d.v] || null);
+      live.sel = null; renderLive(); toast(`${d.v}に変更した`);
+    },
     ment(d) { G.state().tactics.ment = d.v; G.save(); render(); },
     style(d) { G.state().tactics.style = d.v; G.save(); render(); },
     autosub() { const S = G.state(); S.autoSub = !S.autoSub; G.save(); render(); },
@@ -1046,6 +1162,118 @@
     const fn = actions[el.dataset.act];
     if (fn) fn(el.dataset, el, ev);
   });
+  // ---------- 作戦ボードのドラッグ・タップ・長押し ----------
+  let drag = null;
+  function dropTarget(ev, d) {
+    const el = document.elementFromPoint(ev.clientX, ev.clientY);
+    const t = el && el.closest('[data-drop]');
+    return t && t.closest('[data-board]') === d.board ? t : null;
+  }
+  function clearDrag(d) {
+    document.querySelectorAll('.drop-over').forEach(x => x.classList.remove('drop-over'));
+    if (d && d.ghost) d.ghost.remove();
+    if (d && d.el) d.el.classList.remove('dragging');
+  }
+  function openRole(mode, i) {
+    const S = G.state();
+    if (mode === 'pre' && !G.player(S.xi[i])) return;
+    ui.modal = { type: 'role', mode, i };
+    renderModal();
+    if (navigator.vibrate) { try { navigator.vibrate(15); } catch (e) { /* 無視 */ } }
+  }
+  function tapBoard(d) {
+    const S = G.state();
+    if (d.mode === 'pre') {
+      if (d.kind === 'slot') { ui.modal = { type: 'slot', i: +d.i }; renderModal(); }
+      else { ui.modal = { type: 'player', id: d.id }; renderModal(); }
+      return;
+    }
+    const sim = live.sim, us = sim.userSide;
+    if (d.kind === 'slot') { const e = sim.teams[us].onPitch[+d.i]; if (e && !e.sent) { live.sel = live.sel === +d.i ? null : +d.i; renderLive(); } return; }
+    if (live.sel == null) { toast('先にピッチ上の交代する選手をタップ'); return; }
+    if (sim.substitute(us, live.sel, d.id)) { live.sel = null; live.msg = '交代を行った'; renderLive(); } else toast('交代枠が残っていない');
+    void S;
+  }
+  function doDrop(d, over) {
+    const S = G.state();
+    const src = d.kind, dst = over.dataset.drop;
+    if (d.mode === 'pre') {
+      if (src === 'slot' && dst === 'slot') { const i = +d.i, j = +over.dataset.i; [S.xi[i], S.xi[j]] = [S.xi[j], S.xi[i]]; }
+      else if (src === 'bench' && dst === 'slot') S.xi[+over.dataset.i] = d.id;
+      else if (src === 'slot' && dst === 'bench') S.xi[+d.i] = over.dataset.id;
+      else return;
+      G.save(); render();
+      return;
+    }
+    const sim = live.sim, us = sim.userSide, T = sim.teams[us];
+    let ok = true;
+    if (src === 'slot' && dst === 'slot') sim.swap(us, +d.i, +over.dataset.i);
+    else if (src === 'bench' && dst === 'slot') { const e = T.onPitch[+over.dataset.i]; ok = e && !e.sent && sim.substitute(us, +over.dataset.i, d.id); }
+    else if (src === 'slot' && dst === 'bench') { const e = T.onPitch[+d.i]; ok = e && !e.sent && sim.substitute(us, +d.i, over.dataset.id); }
+    else return;
+    if (!ok) toast(T.subsLeft <= 0 ? '交代枠が残っていない' : '退場した選手の枠には入れられない');
+    live.sel = null; renderLive();
+  }
+  document.addEventListener('pointerdown', ev => {
+    const el = ev.target.closest('[data-drag]');
+    if (!el || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
+    const board = el.closest('[data-board]');
+    if (!board) return;
+    drag = { el, board, mode: board.dataset.board, kind: el.dataset.drag, i: el.dataset.i, id: el.dataset.id, x: ev.clientX, y: ev.clientY, moved: false, active: false, long: false };
+    if (drag.kind === 'slot') drag.timer = setTimeout(() => { if (drag && !drag.moved) { drag.long = true; openRole(drag.mode, +drag.i); } }, 550);
+  });
+  document.addEventListener('pointermove', ev => {
+    const d = drag;
+    if (!d || d.long) return;
+    if (!d.active) {
+      if (Math.hypot(ev.clientX - d.x, ev.clientY - d.y) < 8) return;
+      d.moved = true; d.active = true; clearTimeout(d.timer);
+      const g = document.createElement('div');
+      g.className = 'drag-ghost';
+      const nmEl = d.el.querySelector('.nm, .bn');
+      g.textContent = nmEl ? nmEl.textContent : '';
+      document.body.appendChild(g); d.ghost = g;
+      d.el.classList.add('dragging');
+    }
+    ev.preventDefault();
+    d.ghost.style.transform = `translate(${ev.clientX}px, ${ev.clientY}px)`;
+    // 画面の端に近づいたら自動でスクロール（指を止めていても続ける）
+    const h = window.innerHeight;
+    const hdr = d.board.closest('.overlay') ? null : document.querySelector('.top');
+    const topEdge = (hdr ? hdr.getBoundingClientRect().bottom : 0) + 60;
+    const bar = document.querySelector('.matchbar');
+    const botEdge = h - (bar && !d.board.closest('.overlay') ? bar.offsetHeight : 0) - 60;
+    d.scrollDir = ev.clientY < topEdge ? -1 : ev.clientY > botEdge ? 1 : 0;
+    d.lastEv = { clientX: ev.clientX, clientY: ev.clientY };
+    if (d.scrollDir && !d.raf) {
+      const sc = d.board.closest('.overlay');
+      const tick = () => {
+        if (drag !== d || !d.scrollDir) { d.raf = null; return; }
+        if (sc) sc.scrollTop += d.scrollDir * 12; else window.scrollBy(0, d.scrollDir * 12);
+        document.querySelectorAll('.drop-over').forEach(x => x.classList.remove('drop-over'));
+        const o = dropTarget(d.lastEv, d); if (o && o !== d.el) o.classList.add('drop-over');
+        d.raf = requestAnimationFrame(tick);
+      };
+      d.raf = requestAnimationFrame(tick);
+    }
+    document.querySelectorAll('.drop-over').forEach(x => x.classList.remove('drop-over'));
+    const over = dropTarget(ev, d);
+    if (over && over !== d.el) over.classList.add('drop-over');
+  }, { passive: false });
+  document.addEventListener('pointerup', ev => {
+    const d = drag; drag = null;
+    if (!d) return;
+    clearTimeout(d.timer);
+    const over = d.active ? dropTarget(ev, d) : null;
+    clearDrag(d);
+    if (d.long) return;
+    if (d.active) { if (over && over !== d.el) doDrop(d, over); return; }
+    tapBoard(d);
+  });
+  document.addEventListener('pointercancel', () => { if (drag) { clearTimeout(drag.timer); clearDrag(drag); drag = null; } });
+  // 長押しメニュー表示中の右クリックメニューを抑止
+  document.addEventListener('contextmenu', ev => { if (ev.target.closest('[data-drag]')) ev.preventDefault(); });
+
   document.addEventListener('change', ev => {
     const ik = ev.target.dataset && ev.target.dataset.ins;
     if (ik) { const S = G.state(); if (ev.target.value) S.instr[ik] = ev.target.value; else delete S.instr[ik]; G.save(); render(); toast('個別指示を設定した'); return; }
@@ -1063,6 +1291,14 @@
     }
   });
   document.addEventListener('keydown', ev => {
+    const dg = ev.target.closest && ev.target.closest('[data-drag]');
+    if (dg && (ev.key === 'Enter' || ev.key === ' ')) {
+      ev.preventDefault();
+      const board = dg.closest('[data-board]');
+      const d = { el: dg, board, mode: board.dataset.board, kind: dg.dataset.drag, i: dg.dataset.i, id: dg.dataset.id };
+      if (ev.shiftKey && d.kind === 'slot') openRole(d.mode, +d.i); else tapBoard(d);
+      return;
+    }
     if (ev.key === 'Escape' && ui.modal) { ui.modal = null; renderModal(); }
     if (ev.key === 'Enter' && ev.target.id === 'coach-name') actions['new-game']();
   });

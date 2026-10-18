@@ -11,6 +11,21 @@
     '3-5-2': [['GK', 50, 92], ['CB', 27, 75], ['CB', 50, 78], ['CB', 73, 75], ['LWB', 10, 49], ['DM', 50, 59], ['CM', 31, 43], ['CM', 69, 43], ['RWB', 90, 49], ['ST', 38, 17], ['ST', 62, 17]]
   };
 
+  // スロットごとに選べる役割（長押しで変更）と、ピッチ上の高さ
+  const ROLE_ALTS = {
+    GK: ['GK'], CB: ['CB'], LB: ['LB', 'LWB'], RB: ['RB', 'RWB'], LWB: ['LWB', 'LB', 'LM'], RWB: ['RWB', 'RB', 'RM'],
+    DM: ['DM', 'CM'], CM: ['CM', 'DM', 'AM'], AM: ['AM', 'CM', 'ST'], LM: ['LM', 'LW', 'LWB'], RM: ['RM', 'RW', 'RWB'],
+    LW: ['LW', 'LM', 'AM'], RW: ['RW', 'RM', 'AM'], ST: ['ST', 'AM']
+  };
+  const ROLE_Y = { GK: 92, CB: 76, LB: 70, RB: 70, LWB: 52, RWB: 52, DM: 57, CM: 46, AM: 34, LM: 43, RM: 43, LW: 26, RW: 26, ST: 15 };
+  // フォーメーションの基本形に役割の変更を重ねた配置 [役割, x, y]
+  function layout(formation, roles) {
+    return FORMATIONS[formation].map((s, i) => {
+      const r = roles && roles[i] ? roles[i] : s[0];
+      return [r, s[1], r === s[0] ? s[2] : ROLE_Y[r]];
+    });
+  }
+
   const SLOT_LABEL = { GK: 'GK', CB: 'CB', LB: 'LSB', RB: 'RSB', LWB: 'LWB', RWB: 'RWB', DM: 'DMF', CM: 'CMF', AM: 'OMF', LM: 'LMF', RM: 'RMF', LW: 'LWG', RW: 'RWG', ST: 'CF' };
   const POS_LABEL = { GK: 'GK', CB: 'CB', LB: 'LSB', RB: 'RSB', DM: 'DMF', CM: 'CMF', AM: 'OMF', LW: 'LWG', RW: 'RWG', ST: 'CF' };
   const POS_GROUP = { GK: 'GK', CB: 'DF', LB: 'DF', RB: 'DF', DM: 'MF', CM: 'MF', AM: 'MF', LW: 'FW', RW: 'FW', ST: 'FW' };
@@ -121,7 +136,7 @@
     _initTeam(spec, side) {
       const byId = {};
       spec.players.forEach(p => { byId[p.id] = p; });
-      const slots = FORMATIONS[spec.formation];
+      const slots = layout(spec.formation, spec.roles);
       const onPitch = spec.xi.map((id, i) => this._entry(byId[id], slots[i][0], spec));
       return {
         spec, side, byId,
@@ -515,13 +530,70 @@
       return true;
     }
 
+    // 役割が変わったら重みを計算し直す
+    _reweigh(e, spec) {
+      e.w = null; e.press = false; e.drainMul = 1;
+      const ins = e.instr || (spec && spec.instr && spec.instr[e.p.id]);
+      if (ins && e.slot !== 'GK') applyInstr(e, ins);
+    }
+
     // 試合中の配置換え（スロット入れ替え）
     swap(side, i, j) {
       const X = this.teams[side];
       const a = X.onPitch[i], b = X.onPitch[j];
-      if (!a || !b) return;
+      if (!a || !b || i === j) return;
       const s = a.slot; a.slot = b.slot; b.slot = s;
       X.onPitch[i] = b; X.onPitch[j] = a;
+      this._reweigh(a, X.spec); this._reweigh(b, X.spec);
+      this._note(side, `${a.p.name}と${b.p.name}のポジションを入れ替え`);
+    }
+
+    // 役割の変更（例：DMF→CMF）
+    setRole(side, i, role) {
+      const X = this.teams[side];
+      const e = X.onPitch[i];
+      if (!e || e.sent || e.slot === 'GK' || role === 'GK') return;
+      const before = e.slot;
+      e.slot = role;
+      X.spec.roles = X.onPitch.map(x => x.slot);
+      this._reweigh(e, X.spec);
+      this._note(side, `${e.p.name}を${SLOT_LABEL[before]}から${SLOT_LABEL[role]}へ`);
+    }
+
+    // 個別指示の変更
+    setInstr(side, i, ins) {
+      const X = this.teams[side];
+      const e = X.onPitch[i];
+      if (!e || e.sent) return;
+      e.instr = ins || null;
+      X.spec.instr = Object.assign({}, X.spec.instr, { [e.p.id]: ins || undefined });
+      this._reweigh(e, X.spec);
+      this._note(side, ins ? `${e.p.name}に「${INSTR[ins].name}」を指示` : `${e.p.name}の個別指示を解除`);
+    }
+
+    // フォーメーション変更：今いる選手を新しい形に適性の高い順で割り当てる
+    changeFormation(side, formation, roles) {
+      const X = this.teams[side];
+      const slots = layout(formation, roles).map(s => s[0]);
+      const live = X.onPitch.filter(e => !e.sent), gone = X.onPitch.filter(e => e.sent);
+      const next = new Array(slots.length).fill(null);
+      const gk = live.find(e => e.slot === 'GK');
+      if (gk) next[slots.indexOf('GK')] = gk;
+      const pairs = [];
+      live.filter(e => e !== gk).forEach(e => slots.forEach((s, k) => { if (s !== 'GK') pairs.push([fit(e.p, s) * e.p.ovr, e, k]); }));
+      pairs.sort((a, b) => b[0] - a[0]);
+      const used = new Set(gk ? [gk] : []);
+      for (const [, e, k] of pairs) { if (next[k] || used.has(e)) continue; next[k] = e; used.add(e); }
+      gone.forEach(e => { const k = next.indexOf(null); if (k >= 0) next[k] = e; });
+      next.forEach((e, k) => { if (e) { e.slot = slots[k]; this._reweigh(e, X.spec); } });
+      X.onPitch = next;
+      X.spec.formation = formation; X.spec.roles = slots;
+      this._note(side, `フォーメーションを${formation}に変更`);
+    }
+
+    _note(side, text) {
+      const ev = { min: this.minute, side, type: 'sub_note', text };
+      this.events.push(ev); if (this._new) this._new.push(ev);
     }
 
     _shootout() {
@@ -607,5 +679,5 @@
     }
   }
 
-  root.SBEngine = { INSTR, FORMATIONS, SLOT_LABEL, POS_LABEL, POS_GROUP, SLOT_FIT, SLOT_W, MENT, STYLE, fit, MatchSim, quickSim, setRandom, normal, poisson, pickW, clamp };
+  root.SBEngine = { INSTR, ROLE_ALTS, ROLE_Y, layout, FORMATIONS, SLOT_LABEL, POS_LABEL, POS_GROUP, SLOT_FIT, SLOT_W, MENT, STYLE, fit, MatchSim, quickSim, setRandom, normal, poisson, pickW, clamp };
 })(typeof window !== 'undefined' ? window : globalThis);

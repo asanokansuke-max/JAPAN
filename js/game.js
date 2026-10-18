@@ -192,7 +192,36 @@
   function event() { return CALENDAR[S.ev]; }
 
   // ---------- 日本代表のチーム力 ----------
-  function slotsOf(f) { return FORMATIONS[f || S.formation].map(s => s[0]); }
+  // 役割の変更（例：DMF→CMF）はフォーメーションごとに覚えておく
+  function rolesOf(f) { f = f || S.formation; return (S.roles && S.roles[f]) || null; }
+  function slotsOf(f) { f = f || S.formation; return E.layout(f, rolesOf(f)).map(s => s[0]); }
+  function setRole(i, role) {
+    S.roles = S.roles || {};
+    const base = slotsOf();
+    base[i] = role;
+    S.roles[S.formation] = base;
+    save();
+  }
+  // フォーメーションを変えても先発11人はできるだけそのまま
+  function remapXI(f) {
+    const slots = slotsOf(f);
+    const ps = S.xi.map(player).filter(p => p && S.squad.includes(p.id));
+    const next = new Array(slots.length).fill(null);
+    const gk = ps.find(p => p.pos === 'GK');
+    if (gk) next[slots.indexOf('GK')] = gk.id;
+    const pairs = [];
+    ps.filter(p => p !== gk).forEach(p => slots.forEach((s, k) => { if (s !== 'GK') pairs.push([p.ovr * fit(p, s), p, k]); }));
+    pairs.sort((a, b) => b[0] - a[0]);
+    const used = new Set(gk ? [gk.id] : []);
+    for (const [, p, k] of pairs) { if (next[k] || used.has(p.id)) continue; next[k] = p.id; used.add(p.id); }
+    // 空いた枠は控えから
+    slots.forEach((s, k) => {
+      if (next[k]) return;
+      const c = S.squad.map(player).filter(p => p && available(p) && !next.includes(p.id)).sort((a, b) => b.ovr * fit(b, s) - a.ovr * fit(a, s))[0];
+      if (c) next[k] = c.id;
+    });
+    return next;
+  }
 
   // 出場停止は大会（予選は2次〜4次で通算）ごとに数える
   function compGroup(c) { return ['q2', 'q3', 'q4'].includes(c) ? 'wcq' : (c || 'friendly'); }
@@ -255,7 +284,7 @@
     const tb = S.trainBonus || {};
     return {
       code: 'JPN', name: '日本', isUser: true, players: squad, xi, bench,
-      formation: S.formation, tactics: Object.assign({}, S.tactics), autoSub: S.autoSub,
+      formation: S.formation, roles: rolesOf(), tactics: Object.assign({}, S.tactics), autoSub: S.autoSub,
       bonus: { att: tb.att || 0, def: tb.def || 0, mid: 0 }, setPiece: !!tb.setPiece,
       chem: teamChem(xi), fam: S.fam[S.formation], morale: S.morale,
       leader: root.SBExtra ? root.SBExtra.leaderBonus(xi) : 0,
@@ -272,7 +301,7 @@
     const n = nation(code);
     if (opts && opts.ratingAdj) n.rating += opts.ratingAdj;
     const f = NATION_FORM[code] || ['4-2-3-1', '4-3-3', '4-4-2', '3-5-2'][hashStr(code) % 4];
-    const slots = slotsOf(f);
+    const slots = FORMATIONS[f].map(s => s[0]);
     const lineOff = s => s === 'GK' ? n.prof[0] : ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(s) ? n.prof[1] : ['DM', 'CM', 'AM', 'LM', 'RM'].includes(s) ? n.prof[2] : n.prof[3];
     const posOf = s => ({ LWB: 'LB', RWB: 'RB', LM: 'LW', RM: 'RW' })[s] || s;
     const stars = (n.stars || []).map(x => { const [nm, r] = x.split('/'); return { nm, r: r || 'F' }; });
@@ -1204,6 +1233,7 @@
     if (s.spFam == null) s.spFam = 40;
     if (!s.upgrades) s.upgrades = {};
     if (!s.instr) s.instr = {};
+    if (!s.roles) s.roles = {};
     if (root.SBRank) root.SBRank.bind(s);
     if (!s.clubRel) s.clubRel = {};
     if (s.captain === undefined) { s.captain = null; s.vice = null; }
@@ -1229,7 +1259,7 @@
   root.SBGame = {
     CALENDAR, STATUS_LABEL, newGame, load, save, clearSave, state, setState, event, player, active, nation, nname,
     age, ageInt, attributes, potRange, potGrade, autoPick, xiRating, teamChem, japanStrength, slotsOf, available, squadIssues,
-    isE1, eligibleNow, tourOf, makeExternal, injuryLimit, minorInjury, callable, curGroup, compGroup, squadMax, isOly, olyEligible, suspended, confirmCamp, announce, startPress, answerPress, startCamp, trainSession, finishCamp, addNews, visible, scout, autoSquad, nextFixture, createMatch, applyResult, eventFinished, endEvent, advance, table, tourGroupOfJapan, dateStr,
+    rolesOf, setRole, remapXI, isE1, eligibleNow, tourOf, makeExternal, injuryLimit, minorInjury, callable, curGroup, compGroup, squadMax, isOly, olyEligible, suspended, confirmCamp, announce, startPress, answerPress, startCamp, trainSession, finishCamp, addNews, visible, scout, autoSquad, nextFixture, createMatch, applyResult, eventFinished, endEvent, advance, table, tourGroupOfJapan, dateStr,
     nationSpec, japanSpec, stepMonth, oppPlan, refreshReports, campCondition
   };
 })(typeof window !== 'undefined' ? window : globalThis);
