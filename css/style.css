@@ -215,6 +215,28 @@ td.nm:hover { text-decoration: underline; }
 .kv > div > b { font-size: 15px; }
 .spark { width: 100%; height: 70px; display: block; }
 
+/* ---------- スタッフ ---------- */
+.staff-h { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.staff-h .badge { width: 36px; height: 36px; border-radius: 50%; background: var(--ai-soft); color: var(--ai); display: grid; place-items: center; font-family: var(--f-display); font-size: 15px; flex: none; }
+.staff-h b { display: block; font-size: 15px; line-height: 1.2; }
+.quote { margin: 0 0 10px; padding-left: 10px; border-left: 3px solid var(--line); color: var(--ink-2); }
+.sugg { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: var(--panel-2); border-radius: 8px; padding: 10px 12px; }
+.sugg > div:first-child { min-width: 0; flex: 1; }
+.sugg.done { opacity: .55; }
+.sugg .sw { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+@media (max-width: 560px) { .sugg { flex-direction: column; align-items: stretch; } .sugg .sw { grid-template-columns: minmax(0, 1fr); } }
+.plink { font-weight: 700; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.plink:hover { text-decoration-color: var(--ink); }
+.med { background: var(--panel-2); border-radius: 8px; padding: 8px 12px; border-left: 3px solid var(--ink-3); }
+.med.bad { border-left-color: var(--bad); } .med.warn { border-left-color: var(--warn); }
+.clubbox { background: var(--panel-2); border-radius: 8px; padding: 12px; margin-bottom: 14px; }
+.cb-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+.cb-grid .wide { grid-column: span 2; }
+@media (max-width: 560px) { .cb-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cb-grid span { display: block; font-size: 10px; letter-spacing: .1em; color: var(--ink-3); font-weight: 700; }
+.tr2 { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 4px; }
+.tr2 i { display: block; height: 100%; background: var(--good); } .tr2 i.mid { background: var(--warn); } .tr2 i.low { background: var(--bad); }
+
 /* ---------- 試合 ---------- */
 .live { max-width: 980px; }
 .board { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; align-items: center; background: var(--ink); color: var(--panel); border-radius: 10px; padding: 14px 16px; }

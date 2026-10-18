@@ -1,7 +1,7 @@
 // 画面描画と操作
 (function () {
   'use strict';
-  const G = window.SBGame, E = window.SBEngine;
+  const G = window.SBGame, E = window.SBEngine, W = window.SBWorld, ST = window.SBStaff;
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const $ = id => document.getElementById(id);
   const fmt1 = v => (Math.round(v * 10) / 10).toFixed(1);
@@ -28,8 +28,7 @@
     return `${G.potGrade((a + b) / 2)}? <span class="muted small num">${a}-${b}</span>`;
   }
   function injTag(p) {
-    if (p.injury >= 1) return `<span class="chip bad">負傷 ${Math.ceil(p.injury)}か月</span>`;
-    if (p.injury > 0) return '<span class="chip bad">負傷</span>';
+    if (p.injury > 0) { const w = Math.ceil(p.injury); return `<span class="chip bad" title="${esc(W.injText(p))}">負傷 ${w >= 9 ? `約${Math.round(w / 4.33)}か月` : `約${w}週`}</span>`; }
     if (p.susp) return '<span class="chip bad">出場停止</span>';
     return '';
   }
@@ -37,7 +36,7 @@
   // ---------- タイトル ----------
   function renderTitle() {
     let saved = null;
-    try { saved = localStorage.getItem('samurai-blue-manager-v1'); } catch (e) { saved = null; }
+    try { saved = localStorage.getItem('samurai-blue-manager-v2'); } catch (e) { saved = null; }
     let info = null;
     if (saved) { try { const s = JSON.parse(saved); info = `${s.coach}監督 ・ ${s.date.y}年${s.date.m}月`; } catch (e) { info = null; } }
     $('app').innerHTML = `
@@ -65,8 +64,8 @@
   function header(S) {
     const ev = G.event();
     const str = S.jpnRating || G.japanStrength();
-    const tabs = [['home', 'ホーム'], ['players', '選手'], ['squad', '招集'], ['tactics', '戦術'], ['schedule', '日程・大会'], ['records', '記録']];
-    const dot = k => (k === 'squad' && S.phase === 'prep') || (k === 'home' && S.phase === 'summary') ? '<span class="dot"></span>' : '';
+    const tabs = [['home', 'ホーム'], ['staff', 'スタッフ'], ['players', '選手'], ['squad', '招集'], ['tactics', '戦術'], ['schedule', '日程・大会'], ['records', '記録']];
+    const dot = k => (k === 'staff' && S.phase === 'prep' && S.cur.reports && !S.cur.reportsSeen) || (k === 'squad' && S.phase === 'prep') || (k === 'home' && S.phase === 'summary') ? '<span class="dot"></span>' : '';
     return `<header class="top"><div class="top-in">
         <div class="brand"><span class="disc"></span>サムライブルー<small>MANAGER</small></div>
         <div class="top-meta">
@@ -84,7 +83,7 @@
     if (!S) { renderTitle(); return; }
     let body = '';
     if (S.phase === 'over' || S.phase === 'ended') body = ending(S);
-    else body = ({ home, players, squad, tactics, schedule, records })[tab](S);
+    else body = ({ home, staff, players, squad, tactics, schedule, records })[tab](S);
     $('app').innerHTML = header(S) + `<main>${body}</main>`;
     renderModal();
   }
@@ -102,7 +101,8 @@
         <h1>${esc(S.cur.title || ev.title)}</h1>
         ${opp}${compInfo}
         <p>${ev.kind === 'tour' ? '大会登録メンバー（23〜26人）を決めて、事前合宿のテーマを選ぼう。大会中はメンバーを変更できない。' : '招集メンバー（20〜26人）を決めて、合宿のテーマを選ぼう。'}現在 ${S.squad.length}人を選出中。</p>
-        <div class="row"><button class="btn go big" data-act="tab" data-v="squad">招集メンバーを決める</button></div>
+        ${S.cur.reports ? `<p style="margin:0 0 12px">スタッフ会議：ヘッドコーチから${S.cur.reports.coach.swaps.length ? `入れ替え提案${S.cur.reports.coach.swaps.length}件` : '招集案'}、スカウトから推薦${S.cur.reports.scout.length}名、メディカルから報告${S.cur.reports.medical.length}件。</p>` : ''}
+        <div class="row"><button class="btn big" data-act="tab" data-v="staff">スタッフの報告を聞く</button><button class="btn go big" data-act="tab" data-v="squad">招集メンバーを決める</button></div>
       </section>`;
     } else if (S.phase === 'match') {
       const fx = G.nextFixture();
@@ -114,7 +114,8 @@
           <h1>日本 vs ${esc(n.name)}</h1>
           <div class="vs"><div class="opp"><b>${esc(n.name)}</b><span>戦力 ${Math.round(n.rating)}${n.stars && n.stars.length ? ' ・ 注目：' + esc(n.stars.slice(0, 3).map(s => s.split('/')[0]).join('、')) : ''}</span></div>
             <div class="opp"><b>日本</b><span>先発 ${fmt1(G.xiRating(S.xi, S.formation))} ・ ${esc(S.formation)} ・ ${E.MENT[S.tactics.ment]}／${E.STYLE[S.tactics.style]}</span></div></div>
-          <div class="row"><button class="btn big" data-act="tab" data-v="tactics">スタメンを確認</button><button class="btn go big" data-act="kickoff">キックオフ</button></div>
+          <p style="margin:0 0 12px">分析担当：${esc(ST.analyst(fx).why)}</p>
+          <div class="row"><button class="btn big" data-act="tab" data-v="staff">スタッフの分析</button><button class="btn big" data-act="tab" data-v="tactics">スタメンを確認</button><button class="btn go big" data-act="kickoff">キックオフ</button></div>
         </section>`;
       } else {
         hero = `<section class="hero"><h1>全試合終了</h1><div class="row"><button class="btn go big" data-act="end-event">活動を締めくくる</button></div></section>`;
@@ -183,6 +184,66 @@
     </section>${tab === 'records' ? records(S) : ''}`;
   }
 
+  // ---------- スタッフ ----------
+  const staffHead = k => { const m = ST.STAFF[k]; return `<div class="staff-h"><span class="badge">${esc(m.name.slice(0, 1))}</span><div><b>${esc(m.name)}</b><span class="muted small">${esc(m.role)}</span></div></div>`; };
+  const pLink = p => `<span class="plink" data-act="player" data-id="${p.id}">${esc(p.name)}</span>`;
+  const pMeta = p => `${E.POS_LABEL[p.pos]} ・ ${G.ageInt(p)}歳 ・ ${esc(p.club)} ・ 能力${Math.round(p.ovr)}`;
+
+  function staff(S) {
+    S.cur.reportsSeen = true;
+    const fx = S.phase === 'match' ? G.nextFixture() : null;
+    if (fx) return matchStaff(S, fx);
+    const r = S.cur.reports;
+    if (S.phase !== 'prep' || !r) return `<section class="card"><h2>スタッフ</h2><p class="muted">次の代表活動が始まると、スタッフが招集に向けたレポートを持ってくる。</p></section>`;
+    const prep = S.phase === 'prep';
+    const coach = r.coach;
+    const swaps = coach.swaps.map((x, k) => {
+      const o = G.player(x.out), i = G.player(x.in);
+      if (!o || !i) return '';
+      const done = !S.squad.includes(o.id) && S.squad.includes(i.id);
+      return `<div class="sugg ${done ? 'done' : ''}">
+        <div class="sw"><div><span class="chip bad">外す</span> ${pLink(o)}<div class="small muted">${pMeta(o)}</div><div class="small">${esc(x.outWhy)}</div></div>
+        <div><span class="chip good">入れる</span> ${pLink(i)}<div class="small muted">${pMeta(i)}</div><div class="small">${esc(x.inWhy)}</div></div></div>
+        ${done ? '<span class="small muted">採用済み</span>' : `<button class="btn sm primary" data-act="staff-swap" data-k="${k}">入れ替える</button>`}</div>`;
+    }).join('');
+    const recBtn = !S.squad.length ? `<button class="btn primary" data-act="staff-rec">推奨26人を採用する</button>` : (coach.swaps.length ? `<button class="btn sm" data-act="staff-all">提案をすべて採用</button>` : '');
+    const scout = r.scout.map(x => { const p = G.player(x.id); if (!p) return ''; const on = S.squad.includes(p.id); return `<div class="sugg"><div><span class="chip ai">${esc(x.tag)}</span> ${pLink(p)}<div class="small muted">${pMeta(p)}</div><div class="small">${esc(x.text)}</div></div>${on ? '<span class="small muted">招集済み</span>' : `<button class="btn sm" data-act="call" data-id="${p.id}">招集する</button>`}</div>`; }).join('');
+    return `<div class="grid g2">
+      <section class="card">${staffHead('coach')}
+        <p class="quote">${esc(coach.summary)}</p>
+        ${coach.notes.map(n => `<p class="small" style="margin:0 0 6px">・${esc(n)}</p>`).join('')}
+        <div class="row" style="margin:8px 0 12px">${recBtn}${prep ? '<button class="btn sm" data-act="tab" data-v="squad">招集画面へ</button>' : ''}</div>
+        <div class="plist">${swaps}</div>
+      </section>
+      <div class="grid" style="align-content:start">
+        <section class="card">${staffHead('scout')}<p class="quote">${r.scout.length ? '現地で見てきた選手を推薦します。' : '今回は特に推薦したい選手はいません。'}</p><div class="plist">${scout}</div></section>
+        <section class="card">${staffHead('medical')}${medList(r.medical)}</section>
+      </div></div>`;
+  }
+
+  function medList(list) {
+    if (!list.length) return '<p class="quote">気になる選手はいません。全員問題なしです。</p>';
+    return `<p class="quote">メディカルチェックの結果です。</p><div class="plist">${list.map(m => { const p = G.player(m.id); if (!p) return ''; return `<div class="med ${m.lv}"><div>${pLink(p)} <span class="small muted">${esc(p.club)}</span></div><div class="small">${esc(m.text)}</div></div>`; }).join('')}</div>`;
+  }
+
+  function matchStaff(S, fx) {
+    const a = ST.analyst(fx);
+    const rot = ST.rotation();
+    const applied = S.tactics.ment === a.rec.ment && S.tactics.style === a.rec.style;
+    return `<div class="grid g2">
+      <section class="card">${staffHead('analyst')}
+        <div class="eyebrow" style="margin-top:4px">${esc(fx.label)}</div>
+        <p class="quote">${esc(a.text)}</p>
+        ${a.stars.length ? `<p class="small">警戒すべき選手：<b>${esc(a.stars.join('、'))}</b></p>` : ''}
+        <p class="quote">${esc(a.why)}</p>
+        <div class="row"><span class="small">推奨：<b>${E.MENT[a.rec.ment]} ／ ${E.STYLE[a.rec.style]}</b></span>${applied ? '<span class="chip good">適用中</span>' : `<button class="btn sm primary" data-act="apply-plan" data-m="${a.rec.ment}" data-s="${a.rec.style}">この作戦にする</button>`}</div>
+      </section>
+      <div class="grid" style="align-content:start">
+        <section class="card">${staffHead('coach')}${rot.length ? `<p class="quote">先発について提案があります。</p><div class="plist">${rot.map((x, k) => `<div class="sugg"><div class="small">${esc(x.text)}</div><button class="btn sm" data-act="rotate" data-i="${x.i}" data-id="${x.in}">入れ替える</button></div>`).join('')}</div>` : '<p class="quote">現在の先発で問題ありません。</p>'}</section>
+        <section class="card">${staffHead('medical')}${medList(ST.matchMedical())}</section>
+      </div></div>`;
+  }
+
   // ---------- 選手 ----------
   function players(S) {
     const canCall = S.phase === 'prep';
@@ -206,7 +267,7 @@
         <span class="small muted">招集 <b class="num" style="font-size:16px;color:var(--ink)">${S.squad.length}</b>/26 ${canCall ? '' : '（活動中は変更不可）'}</span>
       </div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>招集</th>${th('name', '選手')}${th('pos', 'ポジ')}${th('age', '年齢')}${th('club', 'クラブ')}<th>出場</th>${th('ovr', '能力')}${th('pot', '潜在')}${th('form', '調子')}${th('chem', '連携')}${th('caps', '出場/得点')}<th>状態</th></tr></thead>
+        <thead><tr><th>招集</th>${th('name', '選手')}${th('pos', 'ポジ')}${th('age', '年齢')}${th('club', 'クラブ')}<th>クラブでの立場・今季</th>${th('ovr', '能力')}${th('pot', '潜在')}${th('form', '調子')}${th('chem', '連携')}${th('caps', '出場/得点')}<th>状態</th></tr></thead>
         <tbody>${ps.map(p => {
           const on = S.squad.includes(p.id);
           return `<tr class="${on ? 'called' : ''}">
@@ -215,7 +276,7 @@
             <td>${posChip(p)}${p.alt.length ? ` <span class="muted small">${p.alt.map(a => E.POS_LABEL[a]).join('/')}</span>` : ''}</td>
             <td class="num">${G.ageInt(p)}</td>
             <td><span class="tierdot t${p.tier}"></span>${esc(p.club)}</td>
-            <td class="small">${G.STATUS_LABEL[p.status]}</td>
+            <td class="small">${G.STATUS_LABEL[p.status]}${p.season && p.season.apps ? ` <span class="muted num">${p.season.apps}試合${p.pos === 'GK' ? '' : ` ${p.season.g}G ${p.season.a}A`}</span>` : ''}${(p.sharp || 70) < 45 && p.injury <= 0 ? ' <span class="chip bad">試合勘↓</span>' : ''}${p.rumor ? ' <span class="chip ai">噂</span>' : ''}</td>
             <td>${ovrTag(p.ovr)}</td>
             <td>${potText(p)}</td>
             <td>${formTag(p.form)}</td>
@@ -397,6 +458,27 @@
       <text x="${W - 10}" y="${H - 1}" text-anchor="end" style="fill:var(--ink-3)" font-size="10">${Math.floor(y1 / 100)}.${y1 % 100}</text></svg>`;
   }
 
+  function clubBlock(S, p, tierL) {
+    const c = W.club(S, p.club);
+    const s = p.season, ls = p.lastSeason;
+    const sh = Math.round(p.sharp == null ? 70 : p.sharp);
+    const recentCoach = p.coachChange && (S.date.y * 100 + S.date.m) - p.coachChange < 4;
+    const injH = (p.injHist || []).slice().reverse();
+    return `<div class="clubbox">
+        <div class="row"><span class="tierdot t${p.tier}"></span><b>${esc(p.club)}</b><span class="muted small">${esc(W.league(p.club))} ・ ${esc(tierL)}</span>
+          <span class="spacer"></span>${W.isYouth(p.club) ? '' : `<span class="chip ${c.form >= 0.8 ? 'good' : c.form <= -0.8 ? 'bad' : ''}">チーム${W.clubFormLabel(c.form)}</span>`}${c.cl ? ' <span class="chip ai">CL出場</span>' : ''}</div>
+        <div class="cb-grid">
+          <div><span>立場</span><b>${G.STATUS_LABEL[p.status]}</b>${recentCoach ? '<div class="small muted">最近監督が交代した</div>' : ''}</div>
+          <div><span>試合勘</span><b class="num">${sh}</b><div class="tr2"><i style="width:${sh}%" class="${sh < 45 ? 'low' : sh < 65 ? 'mid' : ''}"></i></div></div>
+          <div class="wide"><span>今季 ${esc(s ? s.label : '')}</span><b class="small">${esc(ST.seasonLine(p))}</b>${ls && ls.apps ? `<div class="small muted">前季 ${esc(ls.label)}：${ls.apps}試合 ${ls.g}得点 ${ls.a}アシスト</div>` : ''}</div>
+        </div>
+        ${p.rumor ? `<p class="small" style="margin:8px 0 0"><span class="chip ai">移籍の噂</span> ${esc(W.league(p.rumor.club))}の${esc(p.rumor.club)}が関心</p>` : ''}
+        ${p.injury > 0 ? `<p class="small" style="margin:8px 0 0;color:var(--bad);font-weight:700">${esc(W.injText(p))}（${esc(W.returnDateText(S, p))}復帰見込み）</p>` : ''}
+        ${injH.length ? `<p class="small muted" style="margin:6px 0 0">負傷歴：${injH.map(h => `${Math.floor(h.d / 100)}.${h.d % 100} ${esc(h.t)}（${h.w}週）`).join(' / ')}</p>` : ''}
+        ${p.moves && p.moves.length ? `<p class="small muted" style="margin:4px 0 0">移籍歴：${p.moves.map(m => `${Math.floor(m.d / 100)}.${m.d % 100} ${esc(m.from)}→${esc(m.to)}`).join(' / ')}</p>` : ''}
+      </div>`;
+  }
+
   function playerModal(S, p) {
     if (!p) return '';
     const on = S.squad.includes(p.id);
@@ -410,13 +492,12 @@
       <div class="kv">
         <div><span>能力</span><b>${ovrTag(p.ovr)} <span class="muted small num">${fmt1(p.ovr)}</span></b></div>
         <div><span>潜在（見積）</span><b>${potText(p)}</b></div>
-        <div><span>所属</span><b class="small">${esc(p.club)}</b><div class="small muted">${esc(tierL)}</div></div>
-        <div><span>クラブでの立場</span><b class="small">${G.STATUS_LABEL[p.status]}</b></div>
         <div><span>調子</span><b>${formTag(p.form)} <span class="num">${p.form > 0 ? '+' : ''}${fmt1(p.form)}</span></b></div>
         <div><span>連携</span><b class="num">${Math.round(p.chem)}</b></div>
         <div><span>代表 出場/得点/A</span><b class="num">${p.caps} / ${p.goals} / ${p.assists}</b></div>
-        <div><span>直近評価点</span><b class="num">${avgR}</b></div>
+        <div><span>代表 直近評価点</span><b class="num">${avgR}</b></div>
       </div>
+      ${clubBlock(S, p, tierL)}
       <div class="grid" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px">
         <div class="bars">${Object.entries(attrs).map(([k, v]) => `<div class="bar"><span>${k}</span><span class="tr"><i style="width:${v}%"></i></span><b>${v}</b></div>`).join('')}</div>
         <div><div class="eyebrow">能力の推移</div>${spark(p.hist)}<p class="small muted" style="margin:6px 0 0">${p.know >= 3 ? '代表で直接見ており、潜在能力の見積もりは正確。' : `視察するほど潜在能力の見積もりが正確になる（現在 ${p.know}/3）。`}</p></div>
@@ -616,6 +697,20 @@
     'drop-injured'() { const S = G.state(); S.squad = S.squad.filter(id => G.available(G.player(id))); G.save(); render(); },
     'clear-squad'() { const S = G.state(); S.squad = []; S.xi = []; G.save(); render(); },
     focus(d) { ui.focus = d.v; render(); },
+    'staff-swap'(d) {
+      const S = G.state(); const x = S.cur.reports.coach.swaps[+d.k]; if (!x || S.phase !== 'prep') return;
+      S.squad = S.squad.filter(id => id !== x.out); S.xi = S.xi.map(id => id === x.out ? null : id);
+      if (!S.squad.includes(x.in)) S.squad.push(x.in);
+      G.save(); render(); toast(`${G.player(x.in).name}を招集し、${G.player(x.out).name}を外した`);
+    },
+    'staff-all'() {
+      const S = G.state(); if (S.phase !== 'prep') return;
+      S.cur.reports.coach.swaps.forEach(x => { S.squad = S.squad.filter(id => id !== x.out); if (!S.squad.includes(x.in)) S.squad.push(x.in); });
+      S.xi = G.autoPick(S.squad, S.formation); G.save(); render(); toast('ヘッドコーチの提案をすべて採用した');
+    },
+    'staff-rec'() { const S = G.state(); if (S.phase !== 'prep') return; S.squad = S.cur.reports.coach.rec.slice(); S.xi = G.autoPick(S.squad, S.formation); G.save(); render(); toast('推奨の26人を招集リストにした'); },
+    'apply-plan'(d) { const S = G.state(); S.tactics.ment = d.m; S.tactics.style = d.s; G.save(); render(); toast('分析担当の作戦を採用した'); },
+    rotate(d) { const S = G.state(); const i = +d.i; const cur = S.xi.indexOf(d.id); if (cur >= 0) S.xi[cur] = S.xi[i]; S.xi[i] = d.id; G.save(); render(); toast('先発を入れ替えた'); },
     camp() {
       const S = G.state();
       if (G.squadIssues(S.squad).length || !ui.focus) return;

@@ -3,7 +3,7 @@
 'use strict';
 const path = require('path');
 const load = f => require(path.join(__dirname, '..', 'js', f));
-load('data.js'); load('engine.js'); load('game.js');
+['data.js', 'engine.js', 'world.js', 'game.js', 'staff.js'].forEach(load);
 const { SBEngine: E, SBGame: G } = globalThis;
 
 function autoSquad() {
@@ -48,6 +48,9 @@ function career(verbose) {
     const S = G.state();
     if (S.phase === 'over' || S.phase === 'ended') break;
     if (S.phase === 'prep') {
+      const rep = S.cur.reports;
+      if (!rep || !rep.coach.rec.length) throw new Error('staff reports missing');
+      if (verbose && guard < 4) console.log('   スタッフ:', rep.coach.summary, '| 入替', rep.coach.swaps.length, '| スカウト', rep.scout.map(x => x.tag + ':' + G.player(x.id).name).join(' '), '| 医療', rep.medical.length);
       autoSquad();
       const issues = G.squadIssues(S.squad);
       if (issues.length) throw new Error('squad issues: ' + issues.join(','));
@@ -57,6 +60,7 @@ function career(verbose) {
       let fx, n = 0;
       while ((fx = G.nextFixture()) && n++ < 20) {
         S.xi = G.autoPick(S.squad, S.formation);
+        globalThis.SBStaff.analyst(fx); globalThis.SBStaff.rotation();
         const sim = G.createMatch(fx);
         sim.runToEnd();
         G.applyResult(fx, sim);

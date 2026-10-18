@@ -6,7 +6,7 @@
   const rnd = () => Math.random();
   const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
   const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-  const SAVE_KEY = 'samurai-blue-manager-v1';
+  const SAVE_KEY = 'samurai-blue-manager-v2';
 
   const TRAINING = {
     tactic: { name: '戦術浸透', desc: '採用フォーメーションの熟成度 +15' },
@@ -153,14 +153,17 @@
     const core = ['鈴木彩艶', '冨安健洋', '板倉滉', '伊藤洋輝', '谷口彰悟', '渡辺剛', '町田浩樹', '瀬古歩夢', '鈴木淳之介', '菅原由勢', '長友佑都', '遠藤航', '守田英正', '田中碧', '佐野海舟', '鎌田大地', '久保建英', '三笘薫', '堂安律', '伊東純也', '南野拓実', '中村敬斗', '前田大然', '上田綺世', '町野修斗', '小川航基', '大迫敬介', '早川友基', '鈴木唯人', '藤田譲瑠チマ', '関根大輝', '望月ヘンリー海輝', '細谷真大'];
     D.PLAYERS.forEach(o => {
       const p = makePlayer(Object.assign({}, o, { know: 2, real: true, chem: core.includes(o.name) ? 55 + ri(0, 15) : 15 }));
-      if (D.INITIAL_INJURIES[o.name]) p.injury = D.INITIAL_INJURIES[o.name];
+      const ii = D.INITIAL_INJURIES[o.name];
+      if (ii) { p.injury = ii.w; p.inj = { t: ii.t, part: ii.part, w: 36, major: ii.major }; p.injHist = [{ t: ii.t, d: 202512, w: 36 }]; }
       S.players.push(p);
     });
     for (let i = 0; i < 10; i++) S.players.push(genProspect(2026, { age: ri(17, 20), ovr: ri(58, 67) }));
+    root.SBWorld.bootstrap(S);
     S.players.forEach(p => p.hist.push([dateKey(), Math.round(p.ovr)]));
     addNews('就任', `${S.coach}監督が日本代表監督に就任。目標は2030年ワールドカップ優勝。`);
     addNews('協会', '日本サッカー協会の目標：アジアカップ2027 ベスト4以上、W杯2030 出場とベスト8以上。');
     beginEvent();
+    refreshReports();
     save();
     return S;
   }
@@ -254,6 +257,7 @@
     else if (diff < -3) { ment = rnd() < 0.5 ? 'def' : 'bal'; style = 'counter'; }
     else if (diff > 4) { ment = rnd() < 0.5 ? 'att' : 'bal'; style = ['ESP', 'ARG', 'GER', 'POR', 'NED', 'FRA', 'ENG'].includes(code) ? 'pos' : 'press'; }
     else style = pickW(['bal', 'press', 'pos', 'counter'], () => 1);
+    if (opts && opts.plan) { ment = opts.plan.ment; style = opts.plan.style; }
     return {
       code, name: n.name, isUser: false, players, xi: players.slice(0, 11).map(p => p.id), bench: players.slice(11).map(p => p.id),
       formation: f, tactics: { ment, style }, autoSub: true, bonus: {}, chem: 62, fam: 65, homeBoost: (opts && opts.host) ? 1.5 : 0
@@ -427,6 +431,7 @@
     S.training = null; S.trainBonus = null;
     S.scoutPts = Math.min(6, (S.scoutPts || 0) + 3);
     S.cur = { id: ev.id, played: [] };
+    S.squad.forEach(id => { const p = player(id); if (p) p.injuredInNT = false; });
     if (ev.kind === 'friendly' || (ev.kind === 'q4' && !(S.comps.q4 && S.comps.q4.teams.includes('JPN')))) {
       const ex = S.matches.slice(0, 6).map(m => m.opp);
       const a = pickFriendlyOpp(ev.pool[0], ex), b = pickFriendlyOpp(ev.pool[1], ex.concat([a]));
@@ -462,6 +467,8 @@
       S.cur.mds = [0, 1, 2];
     }
   }
+
+  function refreshReports() { if (root.SBStaff && S.phase === 'prep') S.cur.reports = root.SBStaff.prepReports(); }
 
   // 日本の次の試合
   function nextFixture() {
@@ -541,7 +548,7 @@
     sq.forEach(p => {
       p.chem = Math.min(100, p.chem + 6 + (focus === 'team' ? 10 : 0));
       p.know = 3;
-      p.cond = clamp(100 - ri(0, 12) - (p.status === 'reg' ? 3 : 0) + (focus === 'physical' ? 8 : 0), 70, 100);
+      p.cond = campCondition(p, focus);
       if (focus === 'youth' && age(p) < 24) {
         const g = clamp((p.pot - p.ovr) / 6, 0, 1) * (0.3 + rnd() * 0.7);
         p.ovr = Math.min(p.pot + 1, p.ovr + g);
@@ -556,6 +563,17 @@
     S.phase = 'match';
     if (ev.kind === 'tour') S.tourSquad = S.squad.slice();
     save();
+  }
+
+  // 合宿時のコンディション：クラブでの稼働、試合勘、シーズン終盤の疲労、負傷明け
+  function campCondition(p, focus) {
+    let c = 100 - ri(0, 7);
+    if ((p.load || 0) > 500) c -= 5; else if ((p.load || 0) > 400) c -= 2;
+    c -= Math.max(0, 70 - (p.sharp == null ? 70 : p.sharp)) * 0.15;
+    if (S.date.m === 6 && !root.SBWorld.isJ(p.club)) c -= 4;
+    if (root.SBWorld.weeksSinceReturn(S, p) < 6) c -= 6;
+    if (focus === 'physical') c += 8;
+    return clamp(Math.round(c), 65, 100);
   }
 
   // 自動選考：ポジション枠ごとに能力・調子の高い順
@@ -589,13 +607,21 @@
       if (c) S.xi[i] = c.id;
     });
     const jp = japanSpec();
-    const opp = nationSpec(fx.opp, S.jpnRating, { host: fx.oppHost });
+    const opp = nationSpec(fx.opp, S.jpnRating, { host: fx.oppHost, plan: oppPlan(fx) });
     let home, away, neutral = fx.venue === 'neutral';
     if (fx.venue === 'away') { home = opp; away = jp; } else { home = jp; away = opp; }
     if (fx.oppHost) { neutral = false; home = opp; away = jp; opp.homeBoost = 0; }
     const sim = new E.MatchSim(home, away, { neutral, knockout: fx.knockout });
     sim.userSide = home.isUser ? 0 : 1;
     return sim;
+  }
+
+  // 試合ごとの相手の作戦（分析担当のレポートと一致させる）
+  function oppPlan(fx) {
+    S.cur.plans = S.cur.plans || {};
+    const k = fx.label + fx.opp;
+    if (!S.cur.plans[k]) { const sp = nationSpec(fx.opp, S.jpnRating || japanStrength()); S.cur.plans[k] = { ment: sp.tactics.ment, style: sp.tactics.style, formation: sp.formation }; }
+    return S.cur.plans[k];
   }
 
   function resultOutcome(gf, ga, pensWin) { if (gf > ga) return 'W'; if (gf < ga) return 'L'; return pensWin == null ? 'D' : (pensWin ? 'W' : 'L'); }
@@ -620,16 +646,15 @@
       }
       if (x.red) p.susp = 1;
       if (x.injured) {
-        const sev = rnd();
-        p.injuryGames = sev < 0.5 ? 1 : sev < 0.8 ? 2 : 4;
-        p.injury = sev < 0.8 ? 0 : (sev < 0.95 ? 1 : 3);
-        if (p.injury === 0) p.injury = 0.01; // 短期離脱フラグ
-        addNews('負傷', `${p.name}が負傷。${p.injury >= 1 ? `全治${p.injury * 4}週間の見込み。` : '数試合の欠場の可能性。'}`);
+        const inj = root.SBWorld.rollInjury(S, p, true);
+        p.injuredInNT = true;
+        addNews('負傷', `${p.name}が代表戦で負傷。診断は${inj.t}、全治${inj.w >= 9 ? `約${Math.round(inj.w / 4.33)}か月` : `約${inj.w}週間`}。`, 'bad');
       }
     });
     // 出場停止の消化（出場しなかった選手）
     S.squad.forEach(id => { const p = player(id); if (p && p.susp && !r.players[us].some(x => x.id === id)) p.susp = 0; });
-    S.squad.forEach(id => { const p = player(id); if (p && p.injuryGames && !r.players[us].some(x => x.id === id && x.injured)) { p.injuryGames--; if (p.injuryGames <= 0 && p.injury < 1) p.injury = 0; } });
+    // 次の試合までの数日で回復が進む
+    S.squad.forEach(id => { const p = player(id); if (p && p.injury > 0 && !r.players[us].some(x => x.id === id && x.injured)) p.injury = Math.max(0, p.injury - 0.6); });
     S.squad.forEach(id => { const p = player(id); if (p && !r.players[us].some(x => x.id === id)) p.cond = Math.min(100, p.cond + 6); });
     S.fam[S.formation] = Math.min(100, S.fam[S.formation] + 3);
 
@@ -731,7 +756,7 @@
         S.wcResult = fin;
         addNews('大会', `ワールドカップ2030閉幕。日本は${fin}。優勝は${nname(t.champion)}。`, fin === '優勝' ? 'good' : '');
       }
-      S.squad.forEach(id => { const p = player(id); if (p) { p.susp = 0; if (p.injury < 1) p.injury = 0; p.injuryGames = 0; } });
+      S.squad.forEach(id => { const p = player(id); if (p) p.susp = 0; });
     }
     if (ev.kind === 'qual' || ev.kind === 'q4') {
       const comp = S.comps[ev.comp];
@@ -790,7 +815,7 @@
     // 協会評価は時間とともに平常へ戻る
     S.board = clamp(S.board + (50 - S.board) * 0.1, 0, 100);
     // 招集解除
-    S.squad.forEach(id => { const p = player(id); if (p) { p.susp = 0; p.injuryGames = 0; if (p.injury < 1) p.injury = 0; } });
+    S.squad.forEach(id => { const p = player(id); if (p) p.susp = 0; });
     while (S.date.y * 100 + S.date.m < nx.y * 100 + nx.m) { stepMonth(); }
     // 熟成度は使っていない形が少し下がる
     Object.keys(S.fam).forEach(f => { if (f !== S.formation) S.fam[f] = Math.max(25, S.fam[f] - 2); });
@@ -799,6 +824,7 @@
     S.xi = S.xi.filter(id => S.squad.includes(id));
     if (S.xi.length !== 11) S.xi = [];
     beginEvent();
+    refreshReports();
     save();
   }
 
@@ -807,13 +833,11 @@
     if (S.date.m > 12) { S.date.m = 1; S.date.y++; }
     const m = S.date.m;
     const ps = active();
+    root.SBWorld.month(S);
     ps.forEach(p => developMonth(p));
-    if (m === 1 || m === 8) transfers(m === 8);
     if (m === 1) yearly();
     if (m === 4) newProspects();
     if (m === 7) retirements();
-    // 毎月の話題
-    monthlyNews();
     ps.forEach(p => { if (S.date.m % 3 === 0 || S.date.m === 7) p.hist.push([dateKey(), Math.round(p.ovr)]); if (p.hist.length > 30) p.hist.shift(); });
   }
 
@@ -823,47 +847,14 @@
     if (a < 19) base = 0.3; else if (a < 21) base = 0.25; else if (a < 23) base = 0.17; else if (a < 25) base = 0.09; else if (a < 27) base = 0.04;
     else if (a < 29) base = -0.02; else if (a < 31) base = -0.09; else if (a < 33) base = -0.18; else base = -0.3;
     let g = base > 0 ? base * clamp((p.pot - p.ovr) / 8, -0.2, 1.2) : base;
-    p.status = clubStatus(p);
-    const st = { reg: 0.06, rot: 0, bench: a < 27 ? -0.12 : -0.06, youth: 0.02 }[p.status];
+    // 出場時間が成長を左右する（オフシーズンはクラブでの立場で代用）
+    const mo = p.month;
+    const play = mo && mo.n ? mo.min / (mo.n * 90) : ({ reg: 0.8, rot: 0.45, bench: 0.1, youth: 0.6 })[p.status];
+    const st = (play - 0.45) * (a < 27 ? 0.22 : 0.1);
     const tierB = { 1: 0.08, 2: 0.05, 3: 0.03, 4: 0.01, 5: -0.02, 6: 0 }[p.tier];
     g += st + tierB + normal(0.12);
-    if (p.injury >= 1) { g = Math.min(g, 0) - 0.04; p.injury = Math.max(0, p.injury - 1); if (p.injury === 0) addNews('復帰', `${p.name}が負傷から復帰。`); }
-    else if (p.injury > 0) p.injury = 0;
+    if (p.injury > 0) g = Math.min(g, 0) - 0.04;
     p.ovr = clamp(p.ovr + g, 40, Math.max(p.pot + 2, p.ovr));
-    p.benchMonths = p.status === 'bench' ? p.benchMonths + 1 : 0;
-    p.form = clamp(p.form * 0.7 + normal(0.6) + ({ reg: 0.25, rot: 0, bench: -0.35, youth: 0 })[p.status], -3, 3);
-    // 月間の負傷
-    const ir = (p.traits.includes('ガラスの体') ? 0.065 : 0.028) * (a > 31 ? 1.3 : 1);
-    if (p.injury <= 0 && rnd() < ir) {
-      const s = rnd();
-      p.injury = s < 0.7 ? 1 : s < 0.95 ? ri(2, 3) : ri(6, 9);
-      if (p.injury >= 2 && (p.ovr >= 74 || p.chem >= 40)) addNews('負傷', `${p.name}（${p.club}）が負傷、${p.injury >= 6 ? '長期離脱' : `約${p.injury}か月離脱`}の見込み。`, 'bad');
-    }
-  }
-
-  function moveClub(p, tier, reason) {
-    const opts = D.CLUBS[tier].filter(c => c !== p.club);
-    const club = pickW(opts, () => 1);
-    const from = p.club;
-    p.club = club; p.tier = tier; p.standing = normal(1.5); p.status = clubStatus(p); p.benchMonths = 0;
-    if (p.ovr >= 70 || p.chem >= 40 || reason === 'abroad') addNews('移籍', `${p.name}が${from}から${club}へ移籍${reason === 'up' ? '。ステップアップ' : reason === 'abroad' ? '。海外初挑戦' : reason === 'down' ? '。出場機会を求めて' : reason === 'home' ? '。Jリーグ復帰' : ''}。`, reason === 'up' || reason === 'abroad' ? 'good' : '');
-  }
-
-  function transfers(summer) {
-    const mult = summer ? 1 : 0.35;
-    active().forEach(p => {
-      const a = age(p);
-      if (p.tier >= 6) return;
-      if (p.tier === 5) {
-        if (p.ovr >= 69 && a < 28 && rnd() < 0.35 * mult) moveClub(p, p.ovr >= 76 ? 3 : 4, 'abroad');
-        return;
-      }
-      if (p.status === 'reg' && p.tier > 1 && p.ovr + p.standing >= D.CLUB_TIER_REQ[p.tier - 1] - 1 && a < 31 && rnd() < 0.45 * mult) { moveClub(p, p.tier - 1, 'up'); return; }
-      if (p.status === 'bench' && p.benchMonths >= 4 && rnd() < 0.55 * mult) {
-        if (a >= 31 && rnd() < 0.5) moveClub(p, 5, 'home');
-        else { let t = p.tier + 1; while (t < 5 && p.ovr < D.CLUB_TIER_REQ[t] - 1) t++; moveClub(p, Math.min(5, t), 'down'); }
-      }
-    });
   }
 
   function yearly() {
@@ -892,19 +883,10 @@
       const a = age(p);
       if ((a >= 35 && rnd() < 0.5) || (a >= 33 && p.ovr < 70 && rnd() < 0.35) || (a >= 38)) {
         p.retired = true;
-        if (p.real || p.caps > 5) addNews('引退', `${p.name}（${Math.floor(a)}歳）が${a >= 35 ? '現役引退' : '代表引退'}を表明。代表通算${p.caps}試合${p.goals}得点（監督就任後）。`);
+        if (p.real || p.caps > 5) addNews('引退', `${p.name}（${Math.floor(a)}歳）が${a >= 35 ? '現役引退' : '代表引退'}を表明。${p.caps ? `監督就任後の代表通算${p.caps}試合${p.goals}得点。` : '長年の功績に感謝。'}`);
       }
       // ピークを過ぎた選手でも出場がなければ代表から遠のく
     });
-  }
-
-  function monthlyNews() {
-    const top = active().filter(p => p.status === 'reg' && p.form >= 2 && p.ovr >= 70);
-    if (top.length && rnd() < 0.6) {
-      const p = pickW(top, () => 1);
-      const what = ['FW', 'MF'].includes(E.POS_GROUP[p.pos]) ? pickW(['2試合連続ゴール', 'リーグ戦で1G1A', 'MOMに選出', '月間ベストイレブンに選出'], () => 1) : pickW(['完封勝利に貢献', '月間ベストイレブンに選出', 'MOMに選出'], () => 1);
-      addNews('クラブ', `${p.name}（${p.club}）が好調。${what}。`);
-    }
   }
 
   // ---------- 保存 ----------
@@ -921,10 +903,12 @@
   function state() { return S; }
   function setState(s) { S = s; }
 
+  root.SBWorld.init({ addNews, age, clubStatus, dateKey, active: () => active() });
+
   root.SBGame = {
     CALENDAR, TRAINING, STATUS_LABEL, newGame, load, save, clearSave, state, setState, event, player, active, nation, nname,
     age, ageInt, attributes, potRange, potGrade, autoPick, xiRating, teamChem, japanStrength, slotsOf, available, squadIssues,
     confirmCamp, scout, autoSquad, nextFixture, createMatch, applyResult, eventFinished, endEvent, advance, table, tourGroupOfJapan, dateStr,
-    nationSpec, japanSpec, stepMonth
+    nationSpec, japanSpec, stepMonth, oppPlan, refreshReports, campCondition
   };
 })(typeof window !== 'undefined' ? window : globalThis);
