@@ -141,6 +141,7 @@
       let common = t.dayForm - t.menDown * 3.5;
       if (s.chem != null) common += (s.chem - 50) * 0.04;
       if (s.fam != null) common += (s.fam - 50) * 0.04;
+      if (s.morale != null) common += (s.morale - 50) * 0.04;
       if (!this.opts.neutral && t.side === 0) common += 1.5;
       if (s.homeBoost) common += s.homeBoost;
       const L = {
@@ -315,13 +316,22 @@
       }
     }
 
+    // セットプレー設定：spec.setPlay = { ck: near|far|short|mix, defend: zone|man, ckTaker, fkTaker, pkTaker, fam }
+    _designated(X, id) { return id ? this.active(X).find(e => e.p.id === id && e.slot !== 'GK') : null; }
+
     _setPiece(X, Y, LX, LY) {
       X.stats.corners++;
       const act = this.active(X);
-      const spMult = X.spec.setPiece ? 1.45 : 1;
+      const sp = X.spec.setPlay || {};
+      const spFam = sp.fam == null ? 50 : sp.fam;
+      const spMult = (X.spec.setPiece ? 1.3 : 1) * (0.85 + spFam / 333);
+      // 相手の守り方
+      const ysp = Y.spec.setPlay || {};
+      const yAerial = this.active(Y).filter(e => ['CB', 'ST', 'DM'].includes(e.slot) && has(e.p, '空中戦')).length;
+      const defMult = ysp.defend === 'man' ? (yAerial >= 2 ? 0.84 : 1.02) : ysp.defend === 'zone' ? 0.92 : 1;
       if (rnd() < 0.16) {
         // 直接FK
-        const kicker = act.filter(e => e.slot !== 'GK').sort((a, b) => (has(b.p, 'FK') ? 10 : 0) + this.eff(b) - (has(a.p, 'FK') ? 10 : 0) - this.eff(a))[0];
+        const kicker = this._designated(X, sp.fkTaker) || act.filter(e => e.slot !== 'GK').sort((a, b) => (has(b.p, 'FK') ? 10 : 0) + this.eff(b) - (has(a.p, 'FK') ? 10 : 0) - this.eff(a))[0];
         if (!kicker) return;
         let q = 0.055 * Math.pow(this.eff(kicker) / 80, 2) * (has(kicker.p, 'FK') ? 1.8 : 1) * Math.exp(-0.02 * (LY.gk - 78)) * spMult;
         X.stats.shots++; X.stats.xg += q; kicker.shots++;
@@ -329,22 +339,39 @@
         else if (rnd() < 0.5) this.log(X.side, 'miss', `${kicker.p.name}の直接FKはわずかに外れる`);
         return;
       }
-      const target = pickW(act, e => HEAD_W[e.slot] * (has(e.p, '空中戦') ? 2.2 : 1) * Math.pow(this.eff(e) / 75, 2));
+      const taker = this._designated(X, sp.ckTaker) || act.filter(e => e.slot !== 'GK').sort((a, b) => (has(b.p, 'FK') || has(b.p, 'クロス') ? 8 : 0) + this.eff(b) - (has(a.p, 'FK') || has(a.p, 'クロス') ? 8 : 0) - this.eff(a))[0];
+      const kq = taker ? Math.pow(this.eff(taker) / 78, 2) * (has(taker.p, 'FK') || has(taker.p, 'クロス') ? 1.15 : 1) : 1;
+      const ck = sp.ck || 'mix';
+      if (ck === 'short' && rnd() < 0.55) {
+        // ショートコーナーからミドル
+        const sh = pickW(act.filter(e => e !== taker && e.slot !== 'GK' && SLOT_W[e.slot][0] < 0.5), e => Math.pow(this.eff(e) / 75, 3));
+        if (!sh) return;
+        const q = 0.05 * kq * spMult * defMult;
+        if (rnd() < 0.45) {
+          X.stats.shots++; X.stats.xg += q; sh.shots++;
+          if (rnd() < q) { X.stats.sot++; sh.sot++; this._goal(X, sh, taker, 'がショートコーナーの流れからミドルを突き刺す！'); }
+          else if (rnd() < 0.3) this.log(X.side, 'miss', `ショートコーナーから${sh.p.name}のシュートは枠の上`);
+        }
+        return;
+      }
+      const aerialW = ck === 'far' ? 3.2 : 2.2;
+      const target = pickW(act.filter(e => e !== taker), e => HEAD_W[e.slot] * (has(e.p, '空中戦') ? aerialW : 1) * Math.pow(this.eff(e) / 75, 2));
       if (!target) return;
+      const ourAerial = act.filter(e => has(e.p, '空中戦')).length;
+      const routine = ck === 'far' ? (ourAerial >= 2 ? 1.22 : 0.85) : ck === 'near' ? 1.06 : 1;
       const aerial = has(target.p, '空中戦') ? 1.4 : 1;
-      let q = 0.027 * Math.exp(0.02 * (LX.att - LY.def)) * spMult * aerial;
+      let q = 0.027 * Math.exp(0.02 * (LX.att - LY.def)) * spMult * aerial * kq * routine * defMult;
       if (rnd() < 0.35) {
         X.stats.shots++; X.stats.xg += q * 2.8; target.shots++;
         if (rnd() < q * 2.8) {
           X.stats.sot++; target.sot++;
-          const taker = act.filter(e => e !== target && e.slot !== 'GK').sort((a, b) => (has(b.p, 'FK') || has(b.p, 'クロス') ? 8 : 0) + this.eff(b) - (has(a.p, 'FK') || has(a.p, 'クロス') ? 8 : 0) - this.eff(a))[0];
-          this._goal(X, target, taker, 'がセットプレーから頭で合わせる！');
+          this._goal(X, target, taker, ck === 'near' ? 'がニアで合わせる！ 練習どおりのセットプレー！' : ck === 'far' ? 'がファーで競り勝ち頭で叩き込む！' : 'がセットプレーから頭で合わせる！');
         } else if (rnd() < 0.4) this.log(X.side, 'miss', `コーナーキックから${target.p.name}のヘディングはわずかに枠外`);
       }
     }
 
     _penalty(X, Y, LX, LY) {
-      const taker = this.active(X).filter(e => e.slot !== 'GK').sort((a, b) => this.eff(b) + SHOOT_W[b.slot] * 2 - this.eff(a) - SHOOT_W[a.slot] * 2)[0];
+      const taker = this._designated(X, (X.spec.setPlay || {}).pkTaker) || this.active(X).filter(e => e.slot !== 'GK').sort((a, b) => this.eff(b) + SHOOT_W[b.slot] * 2 - this.eff(a) - SHOOT_W[a.slot] * 2)[0];
       const fouler = pickW(this.active(Y), e => DEF_W[e.slot]);
       if (!taker) return;
       this.log(X.side, 'pen', `PK獲得！ ${fouler ? fouler.p.name + 'がエリア内で倒した' : ''}`);

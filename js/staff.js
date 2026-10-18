@@ -29,7 +29,7 @@
   }
 
   function recommend(n) {
-    const ps = G.active().filter(G.available);
+    const ps = G.visible().filter(G.available);
     const quota = [[['GK'], 3], [['CB'], 5], [['LB', 'RB'], 4], [['DM', 'CM'], 5], [['AM', 'LW', 'RW'], 6], [['ST'], 3]];
     const pick = new Set();
     for (const [poss, q] of quota) ps.filter(p => poss.includes(p.pos)).sort((a, b) => value(b) - value(a)).slice(0, q).forEach(p => pick.add(p.id));
@@ -89,7 +89,7 @@
     if (ev.kind === 'qual') coach.notes.push('予選はアウェーの移動も厳しい。コンディションを最優先にしましょう。');
 
     // スカウト推薦
-    const pool = G.active().filter(p => G.available(p) && !cur.includes(p.id) && (cur.length || !rec.includes(p.id)));
+    const pool = G.visible().filter(p => G.available(p) && !cur.includes(p.id) && (cur.length || !rec.includes(p.id)));
     const fresh = p => !p.scoutedAt || (S.date.y * 12 + S.date.m) - p.scoutedAt > 5;
     const picks = [];
     const add = (p, tag, text) => { if (p && !picks.some(x => x.id === p.id)) { picks.push({ id: p.id, tag, text }); p.scoutedAt = S.date.y * 12 + S.date.m; } };

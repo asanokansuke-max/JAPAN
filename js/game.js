@@ -8,15 +8,6 @@
   const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const SAVE_KEY = 'samurai-blue-manager-v2';
 
-  const TRAINING = {
-    tactic: { name: '戦術浸透', desc: '採用フォーメーションの熟成度 +15' },
-    attack: { name: '攻撃連携', desc: '今回の試合で攻撃力 +1.5' },
-    defense: { name: '守備組織', desc: '今回の試合で守備力 +1.5' },
-    setpiece: { name: 'セットプレー', desc: 'セットプレーからの得点率 +45%' },
-    physical: { name: 'コンディション調整', desc: '全員のコンディション +8' },
-    youth: { name: '若手強化', desc: '23歳以下の選手が成長（能力 +0.3〜1.0）' },
-    team: { name: 'チームビルディング', desc: '招集選手の連携 +10' }
-  };
 
   // 2026年10月〜2030年W杯までの日程
   const CALENDAR = [
@@ -49,7 +40,7 @@
     const p = Object.assign({
       id: 'p' + (nextId++), alt: [], traits: [], form: 0, cond: 95, injury: 0, susp: 0,
       caps: 0, goals: 0, assists: 0, chem: 20, know: 0, standing: normal(1.5), benchMonths: 0,
-      hist: [], retired: false, real: false, potNoise: normal(4), ratings: []
+      hist: [], retired: false, real: false, potNoise: normal(4), ratings: [], mood: 0, hidden: false
     }, o);
     p.tier = D.clubTier(p.club);
     p.ovr = +p.ovr; p.pot = Math.max(p.pot, p.ovr);
@@ -99,7 +90,9 @@
     if (rnd() < 0.25) { const t = pickW(TRAITS_BY_POS[pos], () => 1); if (!traits.includes(t)) traits.push(t); }
     if (rnd() < 0.06) traits.push('ガラスの体');
     const alt = rnd() < 0.6 && ALT_BY_POS[pos].length ? [pickW(ALT_BY_POS[pos], () => 1)] : [];
-    return makePlayer({ name: randomName(), pos, alt, born: y - ageY, club, ovr, pot, traits, know: 0, chem: 0 });
+    // 国内・学生の選手は視察しないと見つからないことがある
+    const hidden = !abroad && rnd() < 0.55 && !opts.visible;
+    return makePlayer({ name: randomName(), pos, alt, born: y - ageY, club, ovr, pot, traits, know: 0, chem: 0, hidden });
   }
 
   // 表示用の詳細能力（総合力・ポジション・特徴から導出）
@@ -147,12 +140,15 @@
       v: 1, coach: coachName || '監督', date: { y: 2026, m: 10 }, ev: 0, phase: 'prep',
       players: [], nations: {}, squad: [], formation: '3-4-2-1', xi: [], tactics: { ment: 'bal', style: 'bal' }, autoSub: false,
       training: null, trainBonus: null, fam: { '3-4-2-1': 62, '4-2-3-1': 50, '4-3-3': 35, '4-4-2': 30, '3-5-2': 30 },
-      board: 60, scoutPts: 3, news: [], matches: [], comps: {}, cur: null, log: [], wcResult: null, nextId: 0
+      board: 60, morale: 60, fans: 55, scoutPts: 3, news: [],
+      setPlay: { ck: 'mix', defend: 'zone', ckTaker: null, fkTaker: null, pkTaker: null }, spFam: 40, matches: [], comps: {}, cur: null, log: [], wcResult: null, nextId: 0
     };
     D.NATIONS.forEach(n => { S.nations[n.code] = { rating: n.rating, base: n.rating }; });
     const core = ['鈴木彩艶', '冨安健洋', '板倉滉', '伊藤洋輝', '谷口彰悟', '渡辺剛', '町田浩樹', '瀬古歩夢', '鈴木淳之介', '菅原由勢', '長友佑都', '遠藤航', '守田英正', '田中碧', '佐野海舟', '鎌田大地', '久保建英', '三笘薫', '堂安律', '伊東純也', '南野拓実', '中村敬斗', '前田大然', '上田綺世', '町野修斗', '小川航基', '大迫敬介', '早川友基', '鈴木唯人', '藤田譲瑠チマ', '関根大輝', '望月ヘンリー海輝', '細谷真大'];
     D.PLAYERS.forEach(o => {
-      const p = makePlayer(Object.assign({}, o, { know: 2, real: true, chem: core.includes(o.name) ? 55 + ri(0, 15) : 15 }));
+      const inCore = core.includes(o.name);
+      // 就任前の代表歴：主力は直近まで招集、実績ある選手は過去に招集歴あり
+      const p = makePlayer(Object.assign({}, o, { know: 2, real: true, chem: inCore ? 55 + ri(0, 15) : 15, campCount: inCore ? 4 : (o.born <= 2001 && o.ovr >= 73 ? 1 : 0), lastCamp: inCore ? 2026 * 12 + 9 : 2025 * 12 + 6 }));
       const ii = D.INITIAL_INJURIES[o.name];
       if (ii) { p.injury = ii.w; p.inj = { t: ii.t, part: ii.part, w: 36, major: ii.major }; p.injHist = [{ t: ii.t, d: 202512, w: 36 }]; }
       S.players.push(p);
@@ -163,6 +159,8 @@
     addNews('就任', `${S.coach}監督が日本代表監督に就任。目標は2030年ワールドカップ優勝。`);
     addNews('協会', '日本サッカー協会の目標：アジアカップ2027 ベスト4以上、W杯2030 出場とベスト8以上。');
     beginEvent();
+    // 前体制の最後の招集メンバー（落選の話題の基準）
+    S.cur.prevSquad = S.players.filter(p => core.includes(p.name)).map(p => p.id);
     refreshReports();
     save();
     return S;
@@ -174,6 +172,7 @@
 
   function player(id) { return S.players.find(p => p.id === id); }
   function active() { return S.players.filter(p => !p.retired); }
+  function visible() { return S.players.filter(p => !p.retired && !p.hidden); }
   function nation(code) { const n = D.NATIONS.find(x => x.code === code); return Object.assign({}, n, S.nations[code]); }
   function nname(code) { return code === 'JPN' ? '日本' : D.NATIONS.find(x => x.code === code).name; }
   function event() { return CALENDAR[S.ev]; }
@@ -216,15 +215,17 @@
   }
 
   function japanSpec(ids) {
-    const squad = (ids || S.squad).map(player).filter(p => p && !p.retired);
+    // 気持ちの状態を調子に上乗せした試合用コピー
+    const squad = (ids || S.squad).map(player).filter(p => p && !p.retired).map(p => Object.assign({}, p, { form: clamp(p.form + (p.mood || 0) * 0.35, -3, 3.5) }));
     const xi = S.xi.slice();
-    const bench = squad.filter(p => !xi.includes(p.id) && available(p)).map(p => p.id);
+    const bench = squad.filter(p => !xi.includes(p.id) && available(player(p.id))).map(p => p.id);
     const tb = S.trainBonus || {};
     return {
       code: 'JPN', name: '日本', isUser: true, players: squad, xi, bench,
       formation: S.formation, tactics: Object.assign({}, S.tactics), autoSub: S.autoSub,
       bonus: { att: tb.att || 0, def: tb.def || 0, mid: 0 }, setPiece: !!tb.setPiece,
-      chem: teamChem(xi), fam: S.fam[S.formation]
+      chem: teamChem(xi), fam: S.fam[S.formation], morale: S.morale,
+      setPlay: Object.assign({ fam: S.spFam }, S.setPlay)
     };
   }
 
@@ -430,7 +431,8 @@
     S.phase = 'prep';
     S.training = null; S.trainBonus = null;
     S.scoutPts = Math.min(6, (S.scoutPts || 0) + 3);
-    S.cur = { id: ev.id, played: [] };
+    S.cur = { id: ev.id, played: [], prevSquad: S.squad.slice() };
+    if (root.SBCamp) S.cur.trips = root.SBCamp.makeTrips();
     S.squad.forEach(id => { const p = player(id); if (p) p.injuredInNT = false; });
     if (ev.kind === 'friendly' || (ev.kind === 'q4' && !(S.comps.q4 && S.comps.q4.teams.includes('JPN')))) {
       const ex = S.matches.slice(0, 6).map(m => m.opp);
@@ -532,54 +534,99 @@
     return issues;
   }
 
-  function confirmCamp(focus) {
+  // ---------- 招集の流れ：発表 → 記者会見 → 合宿 ----------
+  function announce() {
+    if (S.phase !== 'prep' || squadIssues(S.squad).length) return false;
+    const M = root.SBMedia;
+    S.cur.announce = M.announcement();
+    M.applyAnnouncement(S.cur.announce);
+    S.phase = 'announce';
+    save();
+    return true;
+  }
+
+  function startPress() {
+    if (S.phase !== 'announce') return;
+    S.cur.press = { qs: root.SBMedia.questions(), answers: [] };
+    S.phase = 'press';
+    save();
+  }
+
+  function answerPress(ai) {
+    const pr = S.cur.press;
+    if (S.phase !== 'press' || !pr || pr.answers.length >= pr.qs.length) return null;
+    const q = pr.qs[pr.answers.length];
+    const a = q.a[ai];
+    root.SBMedia.applyEffects(a.eff);
+    pr.answers.push(ai);
+    if (pr.answers.length >= pr.qs.length) {
+      pr.media = root.SBMedia.pressReaction(pr);
+      pr.media.heads.forEach(h => addNews('メディア', `${h.outlet}「${h.text}」`));
+    }
+    save();
+    return a;
+  }
+
+  function startCamp() {
+    if (S.phase !== 'press' && S.phase !== 'announce') return;
     const ev = event();
-    S.training = focus;
-    const tb = {};
-    const sq = S.squad.map(player);
-    if (focus === 'tactic') S.fam[S.formation] = Math.min(100, S.fam[S.formation] + 15);
-    if (focus === 'attack') tb.att = 1.5;
-    if (focus === 'defense') tb.def = 1.5;
-    if (focus === 'setpiece') tb.setPiece = true;
-    S.trainBonus = tb;
+    S.cur.camp = { days: ev.kind === 'tour' ? 4 : 3, done: [], log: [], bonus: {} };
     // 招集外は連携が落ちる
     active().forEach(p => { if (!S.squad.includes(p.id)) p.chem = Math.max(0, p.chem - 4); });
-    const grown = [];
-    sq.forEach(p => {
-      p.chem = Math.min(100, p.chem + 6 + (focus === 'team' ? 10 : 0));
+    S.squad.map(player).forEach(p => {
+      p.chem = Math.min(100, p.chem + 5);
       p.know = 3;
-      p.cond = campCondition(p, focus);
-      if (focus === 'youth' && age(p) < 24) {
-        const g = clamp((p.pot - p.ovr) / 6, 0, 1) * (0.3 + rnd() * 0.7);
-        p.ovr = Math.min(p.pot + 1, p.ovr + g);
-        if (g > 0.5) grown.push(p.name);
-      }
+      p.cond = campCondition(p);
       if (age(p) < 23) p.ovr = Math.min(p.pot + 1, p.ovr + 0.15);
       p.campCount = (p.campCount || 0) + 1;
+      p.lastCamp = S.date.y * 12 + S.date.m;
     });
-    if (grown.length) addNews('育成', `若手強化合宿で${grown.slice(0, 4).join('・')}らが手応え。`);
-    if (!S.xi.length || S.xi.some(id => !S.squad.includes(id) || !available(player(id)))) S.xi = autoPick(S.squad, S.formation);
-    S.jpnRating = xiRating(autoPick(S.squad, S.formation), S.formation);
-    S.phase = 'match';
+    // 士気：直近の結果と世論に引っ張られる
+    S.morale = clamp(S.morale + (S.fans - 50) * 0.05, 0, 100);
+    S.phase = 'camp';
     if (ev.kind === 'tour') S.tourSquad = S.squad.slice();
     save();
   }
 
+  function trainSession(key) { return S.phase === 'camp' ? root.SBCamp.session(key) : null; }
+
+  function finishCamp() {
+    if (S.phase !== 'camp') return;
+    const c = S.cur.camp;
+    S.trainBonus = c.bonus;
+    S.training = c.done.slice();
+    if (!S.xi.length || S.xi.some(id => !S.squad.includes(id) || !available(player(id)))) S.xi = autoPick(S.squad, S.formation);
+    S.jpnRating = xiRating(autoPick(S.squad, S.formation), S.formation);
+    S.phase = 'match';
+    save();
+  }
+
+  // テスト・自動進行用：発表から合宿終了まで既定の選択で進める
+  const FOCUS_MENU = { tactic: ['tactic', 'tactic', 'meeting'], attack: ['attack', 'attack', 'game'], defense: ['defense', 'defense', 'tactic'], setpiece: ['setpiece', 'setpiece', 'tactic'], physical: ['recovery', 'tactic', 'recovery'], youth: ['youth', 'youth', 'game'], team: ['meeting', 'bond', 'tactic'] };
+  function confirmCamp(focus) {
+    if (!announce()) return;
+    startPress();
+    S.cur.press.qs.forEach(() => answerPress(0));
+    startCamp();
+    const plan = (FOCUS_MENU[focus] || FOCUS_MENU.tactic).slice();
+    while (S.cur.camp.done.length < S.cur.camp.days) trainSession(plan[S.cur.camp.done.length % plan.length]);
+    finishCamp();
+  }
+
   // 合宿時のコンディション：クラブでの稼働、試合勘、シーズン終盤の疲労、負傷明け
-  function campCondition(p, focus) {
+  function campCondition(p) {
     let c = 100 - ri(0, 7);
     if ((p.load || 0) > 500) c -= 5; else if ((p.load || 0) > 400) c -= 2;
     c -= Math.max(0, 70 - (p.sharp == null ? 70 : p.sharp)) * 0.15;
     if (S.date.m === 6 && !root.SBWorld.isJ(p.club)) c -= 4;
     if (root.SBWorld.weeksSinceReturn(S, p) < 6) c -= 6;
-    if (focus === 'physical') c += 8;
     return clamp(Math.round(c), 65, 100);
   }
 
   // 自動選考：ポジション枠ごとに能力・調子の高い順
   function autoSquad(n) {
     n = n || 26;
-    const ps = active().filter(available);
+    const ps = visible().filter(available);
     const score = p => p.ovr + p.form * 0.6 + (p.status === 'bench' ? -1.5 : 0) + p.chem * 0.01;
     const quota = [['GK', ['GK'], 3], ['CB', ['CB'], 5], ['SB', ['LB', 'RB'], 4], ['CM', ['DM', 'CM'], 5], ['AT', ['AM', 'LW', 'RW'], 6], ['ST', ['ST'], 3]];
     const pick = new Set();
@@ -671,6 +718,19 @@
       scorers, poss: r.possession[us], shots: [r.stats[us].shots, r.stats[them].shots], xg: [r.stats[us].xg, r.stats[them].xg], board: delta,
       motm: (() => { const all = r.players[us].filter(x => x.minutes >= 30).sort((a, b) => b.rating - a.rating)[0]; return all ? all.name : ''; })()
     };
+    // 出場時間で選手の気持ちが変わる
+    S.squad.forEach(id => {
+      const p = player(id); if (!p) return;
+      const x = r.players[us].find(y => y.id === id);
+      p.mood = clamp((p.mood || 0) + (!x ? -0.35 : x.minutes >= 60 ? 0.25 : 0.05), -3, 3);
+    });
+    const media = root.SBMedia ? root.SBMedia.matchReaction(rec) : null;
+    if (media) {
+      rec.media = media;
+      S.fans = clamp(S.fans + media.fansD, 0, 100);
+      S.morale = clamp(S.morale + media.moraleD, 0, 100);
+      addNews('報道', `${media.outlet}「${media.head}」`, out === 'W' ? 'good' : out === 'L' ? 'bad' : '');
+    }
     S.matches.unshift(rec);
     S.cur.played.push(rec);
 
@@ -794,6 +854,13 @@
         }
       }
     }
+    if (ev.kind === 'tour' && root.SBMedia) {
+      const pd = root.SBMedia.promiseResult(S.comps[ev.comp].finish);
+      if (pd) { S.fans = clamp(S.fans + pd * 1.5, 0, 100); boardDelta += pd; summary.lines.push(pd > 0 ? '会見で掲げた目標を達成した' : '会見で掲げた目標に届かず、批判を浴びた'); }
+    }
+    // 世論は協会の評価にも響く
+    boardDelta += Math.round((S.fans - 50) * 0.06);
+    if (S.fans < 25) addNews('メディア', `${S.coach}監督の解任を求める声がネット上で拡大。`, 'bad');
     S.board = clamp(S.board + boardDelta, 0, 100);
     if (boardDelta) summary.lines.push(`協会評価 ${boardDelta > 0 ? '+' : ''}${boardDelta}`);
     const res = S.cur.played;
@@ -835,6 +902,13 @@
     const ps = active();
     root.SBWorld.month(S);
     ps.forEach(p => developMonth(p));
+    ps.forEach(p => {
+      p.mood = (p.mood || 0) * 0.75;
+      // 埋もれていた選手もクラブで頭角を現せば知られる
+      if (p.hidden && (p.ovr >= 70 || (p.season && p.season.g >= 8))) { p.hidden = false; addNews('新星', `${p.name}（${p.club}・${ageInt(p)}歳）が頭角を現している。`, 'good'); }
+    });
+    S.morale = clamp(S.morale + (55 - S.morale) * 0.08, 0, 100);
+    S.fans = clamp(S.fans + (52 - S.fans) * 0.05, 0, 100);
     if (m === 1) yearly();
     if (m === 4) newProspects();
     if (m === 7) retirements();
@@ -906,9 +980,9 @@
   root.SBWorld.init({ addNews, age, clubStatus, dateKey, active: () => active() });
 
   root.SBGame = {
-    CALENDAR, TRAINING, STATUS_LABEL, newGame, load, save, clearSave, state, setState, event, player, active, nation, nname,
+    CALENDAR, STATUS_LABEL, newGame, load, save, clearSave, state, setState, event, player, active, nation, nname,
     age, ageInt, attributes, potRange, potGrade, autoPick, xiRating, teamChem, japanStrength, slotsOf, available, squadIssues,
-    confirmCamp, scout, autoSquad, nextFixture, createMatch, applyResult, eventFinished, endEvent, advance, table, tourGroupOfJapan, dateStr,
+    confirmCamp, announce, startPress, answerPress, startCamp, trainSession, finishCamp, addNews, visible, scout, autoSquad, nextFixture, createMatch, applyResult, eventFinished, endEvent, advance, table, tourGroupOfJapan, dateStr,
     nationSpec, japanSpec, stepMonth, oppPlan, refreshReports, campCondition
   };
 })(typeof window !== 'undefined' ? window : globalThis);
