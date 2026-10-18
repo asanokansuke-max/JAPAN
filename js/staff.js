@@ -29,11 +29,28 @@
   }
 
   function recommend(n) {
+    if (G.isOly()) return recommendOly();
     const ps = G.visible().filter(G.available);
     const quota = [[['GK'], 3], [['CB'], 5], [['LB', 'RB'], 4], [['DM', 'CM'], 5], [['AM', 'LW', 'RW'], 6], [['ST'], 3]];
     const pick = new Set();
     for (const [poss, q] of quota) ps.filter(p => poss.includes(p.pos)).sort((a, b) => value(b) - value(a)).slice(0, q).forEach(p => pick.add(p.id));
     ps.filter(p => p.pos !== 'GK' && !pick.has(p.id)).sort((a, b) => value(b) - value(a)).forEach(p => { if (pick.size < n) pick.add(p.id); });
+    return [...pick];
+  }
+
+  // 五輪：U-23から15人、オーバーエイジ3人
+  function recommendOly() {
+    const ps = G.visible().filter(G.available);
+    const u = ps.filter(G.olyEligible);
+    const quota = [[['GK'], 2], [['CB'], 3], [['LB', 'RB'], 2], [['DM', 'CM'], 3], [['AM', 'LW', 'RW'], 3], [['ST'], 2]];
+    const pick = new Set();
+    for (const [poss, q] of quota) u.filter(p => poss.includes(p.pos)).sort((a, b) => value(b) - value(a)).slice(0, q).forEach(p => pick.add(p.id));
+    // U-23のGKが足りなければオーバーエイジ枠で補う
+    let oa = 3;
+    const gkN = [...pick].filter(id => G.player(id).pos === 'GK').length;
+    ps.filter(p => !G.olyEligible(p) && p.pos === 'GK').sort((a, b) => value(b) - value(a)).slice(0, Math.max(0, 2 - gkN)).forEach(p => { pick.add(p.id); oa--; });
+    ps.filter(p => !G.olyEligible(p) && p.pos !== 'GK').sort((a, b) => value(b) - value(a)).slice(0, oa).forEach(p => pick.add(p.id));
+    u.filter(p => p.pos !== 'GK' && !pick.has(p.id)).sort((a, b) => value(b) - value(a)).forEach(p => { if (pick.size < 18) pick.add(p.id); });
     return [...pick];
   }
 
@@ -63,11 +80,11 @@
   function prepReports() {
     const S = G.state();
     const ev = G.event();
-    const rec = recommend(26);
+    const rec = recommend(G.squadMax());
     const cur = S.squad.filter(id => { const p = G.player(id); return p && !p.retired; });
     const coach = { rec, swaps: [], notes: [] };
     if (!cur.length) {
-      coach.summary = `${ev.kind === 'tour' ? '大会に向けて' : '今回の活動に向けて'}、クラブでの状態を踏まえた26人を用意しました。たたき台にしてください。`;
+      coach.summary = G.isOly() ? 'U-23から15人、オーバーエイジ3人の18人を用意しました。欧州のクラブは五輪への派遣を渋るかもしれません。' : `${ev.kind === 'tour' ? '大会に向けて' : '今回の活動に向けて'}、クラブでの状態を踏まえた26人を用意しました。たたき台にしてください。`;
     } else {
       const outs = cur.filter(id => !rec.includes(id)).map(G.player);
       const ins = rec.filter(id => !cur.includes(id)).map(G.player);
@@ -193,5 +210,5 @@
     }));
   }
 
-  root.SBStaff = { STAFF, prepReports, analyst, rotation, matchMedical, seasonLine, value };
+  root.SBStaff = { STAFF, recommend, prepReports, analyst, rotation, matchMedical, seasonLine, value };
 })(typeof window !== 'undefined' ? window : globalThis);

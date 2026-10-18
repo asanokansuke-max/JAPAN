@@ -25,7 +25,7 @@
   function session(key) {
     const S = G.state();
     const c = S.cur.camp;
-    if (!c || c.done.length >= c.days) return null;
+    if (!c || c.done.length >= c.days || c.pending) return null;
     const m = MENU[key];
     const sq = squad().filter(p => p.injury <= 0);
     const tb = c.bonus;
@@ -51,8 +51,10 @@
       ys.forEach(p => { const g = clamp((p.pot - p.ovr) / 6, 0, 1) * (0.15 + rnd() * 0.45); p.ovr = Math.min(p.pot + 1, p.ovr + g); if (g > 0.3) grown.push(p.name); mood(p, 0.3); });
       lines.push(ys.length ? `若手${ys.length}人に個別指導${grown.length ? `。${grown.slice(0, 3).join('・')}が手応え` : ''}` : '対象の若手がいない');
     }
-    if (key === 'meeting') { S.morale = clamp(S.morale + 6, 0, 100); lines.push(`チームの目標を共有。士気 ${Math.round(S.morale)}`); }
-    if (key === 'bond') { S.morale = clamp(S.morale + 3, 0, 100); sq.forEach(p => { p.chem = Math.min(100, p.chem + 4); }); lines.push('食事会で選手同士の距離が縮まった'); }
+    // 士気は高いほど上がりにくい
+    const lift = d => clamp(S.morale + d * Math.min(1, (100 - S.morale) / 40), 0, 100);
+    if (key === 'meeting') { S.morale = lift(6); lines.push(`チームの目標を共有。士気 ${Math.round(S.morale)}`); }
+    if (key === 'bond') { S.morale = lift(3); sq.forEach(p => { p.chem = Math.min(100, p.chem + 4); }); lines.push('食事会で選手同士の距離が縮まった'); }
     // 負荷
     sq.forEach(p => { p.cond = clamp(p.cond - m.load - (m.load > 0 ? rnd() : 0), 55, 100); });
     // 出来事
@@ -67,8 +69,13 @@
   function campEvent(key, sq) {
     const S = G.state();
     const intense = MENU[key].load >= 2;
+    const XX = root.SBExtra;
+    const disc = XX && XX.disciplineEvent(sq);
+    if (disc) return disc;
+    const lead = XX ? XX.leadership(G.player(S.captain)) : 30;
     const r = rnd();
-    if (intense && r < (key === 'game' ? 0.14 : 0.07)) {
+    const injMult = S.upgrades && S.upgrades.medical ? 0.6 : 1;
+    if (intense && r < (key === 'game' ? 0.14 : 0.07) * injMult) {
       const p = pickW(sq.filter(x => x.pos !== 'GK'), x => (x.traits.includes('ガラスの体') ? 3 : 1) * (x.cond < 80 ? 2 : 1));
       if (!p) return null;
       const w = ri(1, 3);
@@ -79,10 +86,11 @@
       return `アクシデント：${p.name}が${p.inj.t}で離脱（約${w}週）。追加招集を検討`;
     }
     if (r < 0.12) {
-      const v = sq.filter(p => G.age(p) >= 29 && (p.traits.includes('リーダー') || p.caps >= 8 || p.chem >= 70)).sort((a, b) => b.chem - a.chem)[0];
+      const cap = G.player(S.captain);
+      const v = cap && sq.includes(cap) && lead >= 35 ? cap : sq.filter(p => G.age(p) >= 29 && (p.traits.includes('リーダー') || p.caps >= 8 || p.chem >= 70)).sort((a, b) => b.chem - a.chem)[0];
       if (v) { S.morale = clamp(S.morale + 3, 0, 100); return `${v.name}が選手だけのミーティングを開き、チームを引き締めた（士気 +3）`; }
     }
-    if (r < 0.2) {
+    if (r < 0.2 && !(lead >= 45 && rnd() < 0.6)) {
       const unhappy = sq.filter(p => (p.mood || 0) <= -1);
       const a = unhappy[0] || pickW(sq, () => 1), b = pickW(sq.filter(p => p !== a && p.pos === a.pos), () => 1);
       if (a && b) { S.morale = clamp(S.morale - 3, 0, 100); a.chem = Math.max(0, a.chem - 4); b.chem = Math.max(0, b.chem - 4); mood(a, -0.5); return `練習中に${a.name}と${b.name}が激しく言い合う場面も（士気 -3）`; }

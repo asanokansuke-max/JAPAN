@@ -1,7 +1,7 @@
 // 画面描画と操作
 (function () {
   'use strict';
-  const G = window.SBGame, E = window.SBEngine, W = window.SBWorld, ST = window.SBStaff, M = window.SBMedia, C = window.SBCamp;
+  const G = window.SBGame, E = window.SBEngine, W = window.SBWorld, ST = window.SBStaff, M = window.SBMedia, C = window.SBCamp, X = window.SBExtra;
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const $ = id => document.getElementById(id);
   const fmt1 = v => (Math.round(v * 10) / 10).toFixed(1);
@@ -20,8 +20,15 @@
   function stateChips(p, opts) {
     const S = G.state();
     const out = [];
+    if (S.captain === p.id) out.push('<span class="chip cap">主将</span>'); else if (S.vice === p.id) out.push('<span class="chip cap">副主将</span>');
     if (p.injury > 0) out.push(injTag(p));
-    else if (p.susp) out.push('<span class="chip bad">出場停止</span>');
+    else if (G.suspended(p)) out.push('<span class="chip bad">出場停止</span>');
+    if (p.awayGames > 0) out.push('<span class="chip bad">次戦欠場</span>');
+    const yc = p.yc && p.yc[G.curGroup()];
+    if (yc >= 1) out.push(`<span class="chip warn">警告${yc}枚</span>`);
+    if (p.minCap) out.push(`<span class="chip warn">出場${p.minCap}分まで</span>`);
+    if (p.dual && p.dual.status === 'undecided') out.push(`<span class="chip ai">二重国籍（${esc(p.dual.nation)}）</span>`);
+    if (G.isOly() && !G.olyEligible(p)) out.push('<span class="chip">OA</span>');
     const f = p.form + (p.mood || 0) * 0.35;
     if (f >= 2) out.push('<span class="chip good">絶好調</span>'); else if (f >= 1) out.push('<span class="chip good">好調</span>');
     else if (f <= -2) out.push('<span class="chip bad">絶不調</span>'); else if (f <= -1) out.push('<span class="chip warn">不調</span>');
@@ -46,7 +53,7 @@
     return `${G.potGrade((a + b) / 2)}? <span class="muted small num">${a}-${b}</span>`;
   }
   function injTag(p) {
-    if (p.injury > 0) { const w = Math.ceil(p.injury); return `<span class="chip bad" title="${esc(W.injText(p))}">負傷 ${w >= 9 ? `約${Math.round(w / 4.33)}か月` : `約${w}週`}</span>`; }
+    if (p.injury > 0) { const w = Math.max(1, Math.ceil(p.injury)); return `<span class="chip bad" title="${esc(W.injText(p))}">負傷 ${w >= 9 ? `約${Math.round(w / 4.33)}か月` : `約${w}週`}</span>`; }
     if (p.susp) return '<span class="chip bad">出場停止</span>';
     return '';
   }
@@ -140,7 +147,8 @@
           <h1>日本 vs ${esc(n.name)}</h1>
           <div class="vs"><div class="opp"><b>${esc(n.name)}</b><span>戦力 ${Math.round(n.rating)}${n.stars && n.stars.length ? ' ・ 注目：' + esc(n.stars.slice(0, 3).map(s => s.split('/')[0]).join('、')) : ''}</span></div>
             <div class="opp"><b>日本</b><span>先発 ${fmt1(G.xiRating(S.xi, S.formation))} ・ ${esc(S.formation)} ・ ${E.MENT[S.tactics.ment]}／${E.STYLE[S.tactics.style]}</span></div></div>
-          <p style="margin:0 0 12px">分析担当：${esc(ST.analyst(fx).why)}</p>
+          ${(() => { const vi = X.venueInfo(fx); return `<p style="margin:0 0 6px">会場：${esc(vi.city)}${vi.climate ? ` ・ 気候：<b>${esc(vi.climate)}</b>（${vi.oppAcclim ? '相手は慣れている。' : ''}消耗が激しい）` : ''}</p>`; })()}
+          <p style="margin:0 0 12px">分析担当：${esc(ST.analyst(fx).why)}${S.cur.focus && S.cur.focus[X.focusKey(fx)] ? ` 分析の重点：${esc(X.FOCUS[S.cur.focus[X.focusKey(fx)]].name)}` : ''}</p>
           <div class="row"><button class="btn big" data-act="tab" data-v="staff">スタッフの分析</button><button class="btn big" data-act="tab" data-v="tactics">スタメンを確認</button><button class="btn go big" data-act="kickoff">キックオフ</button></div>
         </section>`;
       } else {
@@ -154,7 +162,7 @@
         <h1>${esc(sm.title)}</h1>
         ${sm.lines.map(l => `<p style="margin:0 0 4px">${esc(l)}</p>`).join('')}
         <div class="row" style="margin-top:12px"><button class="btn go big" data-act="advance">${nx ? `${nx.y}年${nx.m}月へ進む` : '次へ'}</button>${nx ? `<span style="opacity:.8">次：${esc(nx.title)}</span>` : ''}</div>
-      </section>`;
+      </section>${meetingCard(S)}`;
     }
     const str = S.jpnRating || G.japanStrength();
     const xi = S.xi.filter(Boolean);
@@ -168,6 +176,7 @@
     const wc = S.wcResult;
     const obj = [
       ['アジアカップ2027 ベスト4以上', acOK, ac],
+      ['ロサンゼルス五輪 メダル獲得', S.olyResult ? /メダル/.test(S.olyResult) : null, S.olyResult],
       ['W杯2030 出場権獲得', S.wcQualified ? true : null, S.wcQualified ? '獲得' : ''],
       ['W杯2030 ベスト8以上', wc ? ['優勝', '準優勝', 'ベスト4', 'ベスト8'].includes(wc) : null, wc],
       ['W杯2030 優勝', wc ? wc === '優勝' : null, '']
@@ -186,6 +195,19 @@
           ${resetBlock()}
         </div>
       </div></div>`;
+  }
+
+  function meetingCard(S) {
+    const m = S.meeting;
+    if (!m) return '';
+    const offer = m.offer === 'extend' ? `<div class="sugg"><div><b>契約延長のオファー</b><div class="small">協会は2034年までの契約延長を提示している。受ければ解任されにくくなる。</div></div>${m.offerDone ? `<span class="small muted">${m.offerDone === 'accept' ? '合意した' : '保留した'}</span>` : '<div class="row"><button class="btn sm primary" data-act="offer" data-v="1">受ける</button><button class="btn sm" data-act="offer" data-v="0">保留する</button></div>'}</div>`
+      : m.offer === 'warning' ? '<div class="med bad"><b>最後通告</b><div class="small">会長から「次の活動で結果を」と告げられた。評価が下がると解任の危険が高い。</div></div>' : '';
+    return `<section class="card"><h2>協会との面談<span class="sub">${esc(m.title)} ・ 協会評価 ${Math.round(S.board)}</span></h2>
+      <p class="quote">技術委員長と今後の強化方針を話し合う。要望は1つまで。評価が高いほど通りやすい。</p>
+      <div class="plist">${offer}
+      ${m.asked ? `<div class="med ${/承認/.test(m.result) ? '' : 'warn'}"><div class="small">${esc(m.result)}</div></div>` : m.options.map(k => `<div class="sugg"><div><b>${esc(X.UPGRADES[k].name)}</b><div class="small muted">${esc(X.UPGRADES[k].desc)}</div></div><button class="btn sm" data-act="ask" data-v="${k}">要望する</button></div>`).join('') || '<p class="small muted">すべての強化策が実施済み。</p>'}</div>
+      ${Object.keys(S.upgrades || {}).length ? `<p class="small muted" style="margin:10px 0 0">実施済み：${Object.keys(S.upgrades).map(k => esc(X.UPGRADES[k].name)).join('・')}</p>` : ''}
+    </section>`;
   }
 
   function resetBlock() {
@@ -236,7 +258,7 @@
         <div><span class="chip good">入れる</span> ${pLink(i)}<div class="small muted">${pMeta(i)}</div><div class="small">${esc(x.inWhy)}</div></div></div>
         ${done ? '<span class="small muted">採用済み</span>' : `<button class="btn sm primary" data-act="staff-swap" data-k="${k}">入れ替える</button>`}</div>`;
     }).join('');
-    const recBtn = !S.squad.length ? `<button class="btn primary" data-act="staff-rec">推奨26人を採用する</button>` : (coach.swaps.length ? `<button class="btn sm" data-act="staff-all">提案をすべて採用</button>` : '');
+    const recBtn = !S.squad.length ? `<button class="btn primary" data-act="staff-rec">推奨${coach.rec.length}人を採用する</button>` : (coach.swaps.length ? `<button class="btn sm" data-act="staff-all">提案をすべて採用</button>` : '');
     const scout = r.scout.map(x => { const p = G.player(x.id); if (!p) return ''; const on = S.squad.includes(p.id); return `<div class="sugg"><div><span class="chip ai">${esc(x.tag)}</span> ${pLink(p)}<div class="small muted">${pMeta(p)}</div><div class="small">${esc(x.text)}</div></div>${on ? '<span class="small muted">招集済み</span>' : `<button class="btn sm" data-act="call" data-id="${p.id}">招集する</button>`}</div>`; }).join('');
     return `<div class="grid g2">
       <section class="card">${staffHead('coach')}
@@ -268,6 +290,9 @@
         ${a.stars.length ? `<p class="small">警戒すべき選手：<b>${esc(a.stars.join('、'))}</b></p>` : ''}
         <p class="quote">${esc(a.why)}</p>
         <div class="row"><span class="small">推奨：<b>${E.MENT[a.rec.ment]} ／ ${E.STYLE[a.rec.style]}</b></span>${applied ? '<span class="chip good">適用中</span>' : `<button class="btn sm primary" data-act="apply-plan" data-m="${a.rec.ment}" data-s="${a.rec.style}">この作戦にする</button>`}</div>
+        ${(() => { const vi = X.venueInfo(fx); return `<p class="small" style="margin:10px 0 0">会場：${esc(vi.city)}${vi.climate ? ` ・ <b>${esc(vi.climate)}</b>。日本は体力の消耗が15%増える${vi.oppAcclim ? '（相手は慣れている）' : ''}。ハイプレスは避けたい` : ''}</p>`; })()}
+        <h3 style="font-size:13px;margin:16px 0 6px">分析の重点<span class="muted small">（試合ごとに1つ${S.upgrades && S.upgrades.analysis ? '・分析部門強化で効果1.5倍' : ''}）</span></h3>
+        <div class="trainings">${Object.entries(X.FOCUS).map(([k, f]) => { const on = S.cur.focus && S.cur.focus[X.focusKey(fx)] === k; const extra = k === 'star' && a.stars[0] ? `（${a.stars[0]}）` : ''; return `<button class="train" data-act="focus" data-v="${k}" aria-pressed="${on}"><b>${esc(f.name)}${esc(extra)}</b><span>${esc(f.desc)}</span></button>`; }).join('')}</div>
       </section>
       <div class="grid" style="align-content:start">
         <section class="card">${staffHead('coach')}${rot.length ? `<p class="quote">先発について提案があります。</p><div class="plist">${rot.map((x, k) => `<div class="sugg"><div class="small">${esc(x.text)}</div><button class="btn sm" data-act="rotate" data-i="${x.i}" data-id="${x.in}">入れ替える</button></div>`).join('')}</div>` : '<p class="quote">現在の先発で問題ありません。</p>'}</section>
@@ -299,7 +324,7 @@
         <button class="btn sm" data-act="only-called" aria-pressed="${ui.onlyCalled}">${ui.onlyCalled ? '✓ ' : ''}招集中のみ</button>
         <button class="btn sm" data-act="abroad" aria-pressed="${ui.abroad}">${ui.abroad ? '✓ ' : ''}海外組のみ</button>
         <span class="spacer"></span>
-        <span class="small muted">招集 <b class="num" style="font-size:16px;color:var(--ink)">${S.squad.length}</b>/26 ${canCall ? '' : '（活動中は変更不可）'}</span>
+        <span class="small muted">招集 <b class="num" style="font-size:16px;color:var(--ink)">${S.squad.length}</b>/${G.squadMax()} ${canCall ? '' : '（活動中は変更不可）'}</span>
       </div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>招集</th>${th('name', '選手')}${th('pos', 'ポジ')}${th('age', '年齢')}${th('club', 'クラブ')}<th>クラブでの立場・今季</th>${th('ovr', '能力')}${th('pot', '潜在')}${th('form', '調子')}${th('chem', '連携')}${th('caps', '出場/得点')}</tr></thead>
@@ -331,13 +356,14 @@
     const issues = prep ? G.squadIssues(S.squad) : [];
     const canRemove = p => prep || (camp && p.injury > 0);
     const item = p => `<div class="pitem">${posChip(p)}<div style="min-width:0"><div class="n" data-act="player" data-id="${p.id}">${esc(p.name)}</div><div class="c">${esc(p.club)} ・ ${G.ageInt(p)}歳 ・ ${prep ? esc(ST.seasonLine(p)) : `コンディション ${Math.round(p.cond)}`}</div><div class="chips">${stateChips(p)}</div></div>${ovrTag(p.ovr)}${canRemove(p) ? `<button class="btn sm" data-act="call" data-id="${p.id}" aria-label="${esc(p.name)}を外す">${camp ? '離脱' : '外す'}</button>` : formTag(p.form)}</div>`;
-    const recs = (prep || (camp && ps.length < 26)) ? G.visible().filter(p => !S.squad.includes(p.id) && G.available(p)).sort((a, b) => ST.value(b) - ST.value(a)).slice(0, 10) : [];
+    const oaFull = G.isOly() && ps.filter(p => !G.olyEligible(p)).length >= 3;
+    const recs = (prep || (camp && ps.length < G.squadMax())) ? G.visible().filter(p => !S.squad.includes(p.id) && G.available(p) && (!oaFull || G.olyEligible(p))).sort((a, b) => ST.value(b) - ST.value(a)).slice(0, 10) : [];
     const cnt = g => ps.filter(p => E.POS_GROUP[p.pos] === g).length;
     const counts = groups.map(([g]) => `${g} ${cnt(g)}`).join(' ・ ');
     const hurt = ps.filter(p => p.injury > 0).length, hot = ps.filter(p => p.form >= 1).length, cold = ps.filter(p => p.form <= -1).length;
     return `<div class="grid g2">
       <section class="card">
-        <h2>${prep ? (ev.kind === 'tour' ? '大会登録メンバー（選考中）' : '招集メンバー（選考中）') : '招集メンバー'}<span class="sub num">${ps.length}/26 ・ ${counts}</span></h2>
+        <h2>${prep ? (ev.kind === 'tour' ? '大会登録メンバー（選考中）' : '招集メンバー（選考中）') : '招集メンバー'}<span class="sub num">${ps.length}/${G.squadMax()} ・ ${counts}${G.isOly() ? ` ・ U-23 ${ps.filter(G.olyEligible).length} ・ OA ${ps.filter(p => !G.olyEligible(p)).length}/3` : ''}</span></h2>
         <p class="small muted" style="margin:-6px 0 10px">好調 ${hot}人 ・ 不調 ${cold}人 ・ 負傷 ${hurt}人</p>
         ${issues.length ? `<ul class="issues">${issues.map(i => `<li>${esc(i)}</li>`).join('')}</ul>` : ''}
         ${prep ? `<div class="row" style="margin-bottom:12px"><button class="btn sm" data-act="auto-squad">自動選考</button><button class="btn sm" data-act="drop-injured">負傷者を外す</button><button class="btn sm" data-act="clear-squad">全員外す</button><button class="btn sm" data-act="tab" data-v="players">選手一覧から選ぶ</button></div>` : ''}
@@ -348,8 +374,17 @@
           <p class="small muted" style="margin:0 0 10px">メンバーを発表すると記者会見が行われる。選考理由や落選について質問されるので、答え方が世論や選手の気持ちに影響する。</p>
           <button class="btn go big" data-act="announce" ${issues.length ? 'disabled' : ''}>メンバーを発表する</button></section>` : ''}
         ${recs.length ? `<section class="card"><h2>${camp ? '追加招集の候補' : '未招集の注目選手'}<span class="sub">スタッフ評価順</span></h2><div class="plist">${recs.map(p => `<div class="pitem">${posChip(p)}<div style="min-width:0"><div class="n" data-act="player" data-id="${p.id}">${esc(p.name)}</div><div class="c">${esc(p.club)} ・ ${G.ageInt(p)}歳 ・ ${esc(ST.seasonLine(p))}</div><div class="chips">${stateChips(p)}</div></div>${ovrTag(p.ovr)}<button class="btn sm" data-act="call" data-id="${p.id}">${camp ? '追加招集' : '招集'}</button></div>`).join('')}</div></section>` : ''}
+        ${ps.length ? captainCard(S, ps) : ''}
         ${!prep && S.cur.camp ? `<section class="card"><h2>合宿の記録</h2>${campLog(S.cur.camp)}</section>` : ''}
       </div></div>`;
+  }
+
+  function captainCard(S, ps) {
+    const opts = (sel, k) => `<select data-cap="${k}" id="cap-${k}"><option value="">未指名（合宿で自動）</option>${ps.slice().sort((a, b) => X.leadership(b) - X.leadership(a)).map(p => `<option value="${p.id}" ${sel === p.id ? 'selected' : ''}>${esc(p.name)}（統率${X.leadership(p)}）</option>`).join('')}</select>`;
+    const c = G.player(S.captain);
+    return `<section class="card"><h2>キャプテン<span class="sub">統率力が高いほど士気が安定し、合宿のもめ事が減る</span></h2>
+      <div class="spgrid" style="grid-template-columns:repeat(2,minmax(0,1fr))"><label class="spsel"><span>主将</span>${opts(S.captain, 'c')}</label><label class="spsel"><span>副主将</span>${opts(S.vice, 'v')}</label></div>
+      <p class="small muted" style="margin:8px 0 0">${c ? `${esc(c.name)}が先発すると士気に${X.leaderBonus([c.id]) >= 0.5 ? '大きな' : ''}プラス。主将を途中で代えると前任者が不満を持つ。` : '統率力は「リーダー」の特徴、代表経験、年齢、連携、意欲で決まる。'}</p></section>`;
   }
 
   // ---------- メンバー発表 ----------
@@ -367,8 +402,17 @@
         ${ps.filter(p => E.POS_GROUP[p.pos] === g).sort((a, b) => b.ovr - a.ovr).map(p => `<div class="an-row"><span class="nm plink" data-act="player" data-id="${p.id}">${esc(p.name)}</span>${tag(p)}<span class="cl">${esc(p.club)}</span></div>`).join('')}</div>`).join('')}</div>
       ${an.omissions.length ? `<p class="small" style="margin-top:14px"><b>主な落選：</b>${an.omissions.map(id => esc(G.player(id).name)).join('、')}</p>` : ''}
       ${an.injured.length ? `<p class="small"><b>負傷で選外：</b>${an.injured.map(id => `${esc(G.player(id).name)}（${esc(W.injText(G.player(id)))}）`).join('、')}</p>` : ''}
-      <div class="row" style="margin-top:16px"><button class="btn go big" data-act="press-start">記者会見に臨む</button></div>
+      ${(an.declined || []).length ? `<p class="small"><b>招集辞退：</b>${an.declined.map(id => esc(G.player(id).name)).join('、')}</p>` : ''}
+      ${clubReqBlock(S)}
+      <div class="row" style="margin-top:16px"><button class="btn go big" data-act="press-start" ${(S.cur.clubReq || []).some(r => !r.done) ? 'disabled' : ''}>記者会見に臨む</button>${(S.cur.clubReq || []).some(r => !r.done) ? '<span class="small muted">クラブからの要望に回答してください</span>' : ''}</div>
     </section>`;
+  }
+
+  function clubReqBlock(S) {
+    const rs = S.cur.clubReq || [];
+    if (!rs.length) return '';
+    return `<div class="clubreq"><h3>クラブからの要望</h3><div class="plist">${rs.map((r, i) => { const p = G.player(r.id); const rel = Math.round(X.clubRel(r.club)); return `<div class="sugg"><div><div class="small">${esc(r.text)}</div><div class="small muted">${esc(p.name)} ・ ${esc(r.club)}との関係 ${rel}${rel < 40 ? '（悪化中）' : ''}</div></div>${r.done ? `<span class="small muted">${r.done === 'accept' ? '受け入れた' : '断った'}</span>` : `<div class="row"><button class="btn sm primary" data-act="club-req" data-i="${i}" data-v="1">受け入れる</button><button class="btn sm" data-act="club-req" data-i="${i}" data-v="0">断る</button></div>`}</div>`; }).join('')}</div>
+      <p class="small muted" style="margin:6px 0 0">受け入れるとクラブとの関係が良くなる。断るとクラブの心証が悪くなり、選手のクラブでの立場にも響くことがある。</p></div>`;
   }
 
   // ---------- 記者会見 ----------
@@ -409,8 +453,12 @@
       <section class="card">
         <div class="eyebrow">代表合宿 ・ ${left ? `残り${left}日` : '全日程終了'}</div>
         <h2 class="h-display" style="font-size:22px;margin:4px 0 12px">${left ? `${c.done.length + 1}日目のメニュー` : '合宿を打ち上げる'}</h2>
-        ${left ? `<div class="trainings">${Object.entries(C.MENU).map(([k, m]) => `<button class="train" data-act="session" data-v="${k}"><b>${m.name}${c.done.includes(k) ? ` <span class="muted small">×${c.done.filter(x => x === k).length}</span>` : ''}</b><span>${m.desc}</span></button>`).join('')}</div>`
-          : `<p>練習はすべて終わった。スタメンと戦術、セットプレーを確認して試合へ。</p><div class="row"><button class="btn big" data-act="tab" data-v="tactics">戦術・セットプレー</button><button class="btn go big" data-act="camp-end">合宿を打ち上げる</button></div>`}
+        ${c.pending ? `<div class="discipline"><b>規律問題</b><p style="margin:4px 0 10px">${esc(c.pending.text)}。どう対処する？</p><div class="answers">
+          <button class="ans" data-act="disc" data-v="strict"><span class="chip hi">厳罰</span><span>次の試合はメンバー外とする（本人は不満、規律は締まる）</span></button>
+          <button class="ans" data-act="disc" data-v="warn"><span class="chip ai">注意</span><span>口頭で厳重注意にとどめる</span></button>
+          <button class="ans" data-act="disc" data-v="ignore"><span class="chip">不問</span><span>大ごとにしない（チームに不満、報道されるおそれ）</span></button></div></div>` : ''}
+        ${left && !c.pending ? `<div class="trainings">${Object.entries(C.MENU).map(([k, m]) => `<button class="train" data-act="session" data-v="${k}"><b>${m.name}${c.done.includes(k) ? ` <span class="muted small">×${c.done.filter(x => x === k).length}</span>` : ''}</b><span>${m.desc}</span></button>`).join('')}</div>`
+          : c.pending ? '' : `<p>練習はすべて終わった。スタメンと戦術、セットプレーを確認して試合へ。</p><div class="row"><button class="btn big" data-act="tab" data-v="tactics">戦術・セットプレー</button><button class="btn go big" data-act="camp-end">合宿を打ち上げる</button></div>`}
         ${injured.length ? `<div class="confirm" style="margin-top:12px">${injured.map(p => esc(p.name)).join('・')}が負傷中。<button class="btn sm" data-act="tab" data-v="squad">追加招集を検討</button></div>` : ''}
         <h3 style="font-size:13px;margin:16px 0 6px">合宿の記録</h3>${campLog(c)}
       </section>
@@ -428,6 +476,20 @@
   }
   const nm = id => { const p = id && G.player(id); return p ? p.name : '自動'; };
 
+  function dualCard(S) {
+    const ds = X.duals().filter(p => !p.hidden || p.dual.status !== 'undecided');
+    const known = ds.filter(p => !p.hidden || p.dual.status === 'japan');
+    const lost = X.duals().filter(p => p.dual.status === 'other' && p.know > 0);
+    if (!known.length && !lost.length) return `<section class="card"><h2>二重国籍の有望株</h2><p class="small muted" style="margin:0">欧州の視察で、日本と他国の両方の代表資格を持つ若手が見つかることがある。見つけたらここで説得できる。</p></section>`;
+    const st = p => p.dual.status === 'japan' ? '<span class="chip good">日本代表を選択</span>' : p.dual.status === 'other' ? `<span class="chip bad">${esc(p.dual.nation)}を選択</span>` : `<span class="chip ai">検討中</span>`;
+    return `<section class="card"><h2>二重国籍の有望株<span class="sub">公式戦に出場させれば日本代表で確定</span></h2><div class="plist">${known.concat(lost.filter(p => !known.includes(p))).map(p => {
+      const ja = Math.round(p.dual.ja);
+      return `<div class="sugg"><div>${posChip(p)} ${pLink(p)} ${st(p)}<div class="small muted">${esc(p.club)} ・ ${G.ageInt(p)}歳 ・ ${esc(p.dual.nation)}と日本の二重国籍 ・ 潜在 ${potText(p)}</div>
+        ${p.dual.status === 'undecided' ? `<div class="small">日本への気持ち <b class="num">${ja}</b>/100 <span class="tr2" style="display:inline-block;width:120px;vertical-align:middle"><i style="width:${ja}%" class="${ja < 35 ? 'low' : ja < 60 ? 'mid' : ''}"></i></span>${(p.dual.log || []).length ? `<div class="muted">${esc(p.dual.log[p.dual.log.length - 1])}</div>` : ''}</div>` : ''}</div>
+        ${p.dual.status === 'undecided' ? `<div class="row"><button class="btn sm" data-act="persuade" data-id="${p.id}" data-v="call" ${S.scoutPts >= 1 ? '' : 'disabled'}>電話で説得（1pt）</button><button class="btn sm primary" data-act="persuade" data-id="${p.id}" data-v="visit" ${S.scoutPts >= 2 ? '' : 'disabled'}>現地で面会（2pt）</button></div>` : ''}</div>`;
+    }).join('')}</div><p class="small muted" style="margin:8px 0 0">気持ちが低いまま招集すると辞退されることがある。相手国のA代表に呼ばれると一気に気持ちが離れる。</p></section>`;
+  }
+
   // ---------- 視察 ----------
   function scout(S) {
     const trips = S.cur.trips || [];
@@ -438,7 +500,7 @@
         <p class="small muted" style="margin:0 0 12px">視察すると対象クラブの選手の潜在能力の見積もりが正確になり、まだリストにない若手が見つかることもある。${can ? '' : '視察は代表活動の合間（選考期間）にしか行けない。'}</p>
         <div class="plist">${trips.map(t => `<div class="sugg ${t.done ? 'done' : ''}"><div><span class="chip ${t.kind === 'EU' ? 'ai' : t.kind === 'youth' ? 'hi' : ''}">${kindL[t.kind]}</span> <b>${esc(t.title)}</b><div class="small muted">${t.clubs ? esc(t.clubs.slice(0, 6).join('・')) : esc(t.leagues.join('・'))}</div></div>${t.done ? '<span class="small muted">視察済み</span>' : `<button class="btn sm primary" data-act="trip" data-v="${t.id}" ${can && S.scoutPts >= t.cost ? '' : 'disabled'}>視察する（${t.cost}pt）</button>`}</div>`).join('')}</div>
       </section>
-      <div class="grid" style="align-content:start">${trips.filter(t => t.report).map(t => `<section class="card"><h2>${esc(t.title)}<span class="sub">視察レポート${t.report.found ? ` ・ 新たに${t.report.found}人を発見` : ''}</span></h2>
+      <div class="grid" style="align-content:start">${dualCard(S)}${trips.filter(t => t.report).map(t => `<section class="card"><h2>${esc(t.title)}<span class="sub">視察レポート${t.report.found ? ` ・ 新たに${t.report.found}人を発見` : ''}</span></h2>
         <div class="plist">${t.report.rows.map(r => { const p = G.player(r.id); return `<div class="pitem">${posChip(p)}<div style="min-width:0"><div class="n" data-act="player" data-id="${p.id}">${esc(p.name)} ${r.found ? '<span class="chip hi">発見</span>' : ''}</div><div class="c">${esc(p.club)} ・ ${G.ageInt(p)}歳 ・ 潜在 ${potText(p)}</div><div class="small">${esc(r.text)}</div></div>${ovrTag(p.ovr)}${S.phase === 'prep' && !S.squad.includes(p.id) && G.available(p) ? `<button class="btn sm" data-act="call" data-id="${p.id}">招集</button>` : formTag(p.form)}</div>`; }).join('')}</div></section>`).join('') || '<section class="card"><p class="muted">まだ視察していない。</p></section>'}</div>
     </div>`;
   }
@@ -487,7 +549,7 @@
       const p = G.player(S.xi[i]);
       const fit = p ? E.fit(p, s[0]) : 0;
       return `<button class="slot ${s[0] === 'GK' ? 'gk' : ''} ${p ? '' : 'empty'}" style="left:${s[1]}%;top:${s[2]}%" data-act="slot" data-i="${i}" aria-label="${E.SLOT_LABEL[s[0]]} ${p ? esc(p.name) : '未選択'}">
-        <span class="shirt">${p ? Math.round(p.ovr * fit) : '+'}</span><span class="nm">${p ? esc(p.name) : '選択'}</span><span class="lb">${E.SLOT_LABEL[s[0]]}${p && !G.available(p) ? ' ・ 出場不可' : ''}</span>${p && fit < 0.95 ? `<span class="fit">適性 ${Math.round(fit * 100)}%</span>` : ''}</button>`;
+        <span class="shirt">${p ? Math.round(p.ovr * fit) : '+'}${p && p.id === S.captain ? '<i class="arm">C</i>' : ''}</span><span class="nm">${p ? esc(p.name) : '選択'}</span><span class="lb">${E.SLOT_LABEL[s[0]]}${p && !G.available(p) ? ' ・ 出場不可' : ''}</span>${p && fit < 0.95 ? `<span class="fit">適性 ${Math.round(fit * 100)}%</span>` : ''}</button>`;
     }).join('');
     const bench = S.squad.filter(id => !S.xi.includes(id)).map(G.player).filter(Boolean).sort((a, b) => b.ovr - a.ovr);
     const L = lineEstimate(S);
@@ -844,15 +906,15 @@
       if (S.phase === 'camp') {
         const p = G.player(d.id);
         if (i >= 0 && p.injury > 0) { S.squad.splice(i, 1); S.xi = S.xi.map(x => x === d.id ? null : x); G.addNews('招集', `${p.name}が負傷のため代表チームを離脱。`); }
-        else if (i < 0 && S.squad.length < 26 && G.available(p)) { S.squad.push(d.id); p.know = 3; p.cond = G.campCondition(p); p.campCount = (p.campCount || 0) + 1; G.addNews('招集', `${p.name}を追加招集。`); toast(`${p.name}を追加招集した`); }
+        else if (i < 0 && S.squad.length < G.squadMax() && G.available(p)) { S.squad.push(d.id); p.know = 3; p.cond = G.campCondition(p); p.campCount = (p.campCount || 0) + 1; G.addNews('招集', `${p.name}を追加招集。`); toast(`${p.name}を追加招集した`); }
         G.save(); render(); return;
       }
       if (S.phase !== 'prep') return;
       if (i >= 0) { S.squad.splice(i, 1); S.xi = S.xi.map(x => x === d.id ? null : x); }
-      else { if (S.squad.length >= 26) { toast('招集は最大26人まで'); return; } S.squad.push(d.id); }
+      else { if (S.squad.length >= G.squadMax()) { toast(`招集は最大${G.squadMax()}人まで`); return; } S.squad.push(d.id); }
       G.save(); render();
     },
-    'auto-squad'() { const S = G.state(); S.squad = G.autoSquad(26); S.xi = G.autoPick(S.squad, S.formation); G.save(); render(); toast('26人を自動選考した'); },
+    'auto-squad'() { const S = G.state(); S.squad = G.autoSquad(); S.xi = G.autoPick(S.squad, S.formation); G.save(); render(); toast(`${S.squad.length}人を自動選考した`); },
     'drop-injured'() { const S = G.state(); S.squad = S.squad.filter(id => G.available(G.player(id))); G.save(); render(); },
     'clear-squad'() { const S = G.state(); S.squad = []; S.xi = []; G.save(); render(); },
     'staff-swap'(d) {
@@ -866,11 +928,17 @@
       S.cur.reports.coach.swaps.forEach(x => { S.squad = S.squad.filter(id => id !== x.out); if (x.in && !S.squad.includes(x.in)) S.squad.push(x.in); });
       S.xi = G.autoPick(S.squad, S.formation); G.save(); render(); toast('ヘッドコーチの提案をすべて採用した');
     },
-    'staff-rec'() { const S = G.state(); if (S.phase !== 'prep') return; S.squad = S.cur.reports.coach.rec.slice(); S.xi = G.autoPick(S.squad, S.formation); G.save(); render(); toast('推奨の26人を招集リストにした'); },
+    'staff-rec'() { const S = G.state(); if (S.phase !== 'prep') return; S.squad = S.cur.reports.coach.rec.slice(); S.xi = G.autoPick(S.squad, S.formation); G.save(); render(); toast(`推奨の${S.squad.length}人を招集リストにした`); },
     'apply-plan'(d) { const S = G.state(); S.tactics.ment = d.m; S.tactics.style = d.s; G.save(); render(); toast('分析担当の作戦を採用した'); },
     rotate(d) { const S = G.state(); const i = +d.i; const cur = S.xi.indexOf(d.id); if (cur >= 0) S.xi[cur] = S.xi[i]; S.xi[i] = d.id; G.save(); render(); toast('先発を入れ替えた'); },
     announce() { if (G.announce()) { tab = 'home'; render(); window.scrollTo(0, 0); } },
     'press-start'() { G.startPress(); render(); },
+    'club-req'(d) { X.resolveClub(+d.i, d.v === '1'); render(); },
+    disc(d) { const l = X.resolveDiscipline(d.v); render(); if (l) toast(l); },
+    focus(d) { const S = G.state(); const fx = G.nextFixture(); if (!fx) return; S.cur.focus = S.cur.focus || {}; S.cur.focus[X.focusKey(fx)] = d.v; G.save(); render(); toast(`分析の重点：${X.FOCUS[d.v].name}`); },
+    persuade(d) { const l = X.persuade(d.id, d.v); render(); if (l) toast(l); },
+    ask(d) { const r = X.ask(d.v); render(); if (r) toast(r); },
+    offer(d) { X.answerOffer(d.v === '1'); render(); },
     answer(d) { G.answerPress(+d.v); render(); },
     'camp-start'() { G.startCamp(); tab = 'home'; render(); window.scrollTo(0, 0); },
     session(d) { const e = G.trainSession(d.v); render(); if (e) toast(`${e.day}日目：${e.name}`); },
@@ -925,6 +993,8 @@
     if (fn) fn(el.dataset, el, ev);
   });
   document.addEventListener('change', ev => {
+    const ck = ev.target.dataset && ev.target.dataset.cap;
+    if (ck) { if (ev.target.value) X.setCaptain(ev.target.value, ck === 'v'); else { const S = G.state(); if (ck === 'v') S.vice = null; else S.captain = null; G.save(); } render(); return; }
     const k = ev.target.dataset && ev.target.dataset.sp;
     if (k) { const S = G.state(); S.setPlay[k] = ev.target.value || null; G.save(); render(); toast('キッカーを設定した'); }
   });

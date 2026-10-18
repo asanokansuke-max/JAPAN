@@ -142,6 +142,7 @@
       if (s.chem != null) common += (s.chem - 50) * 0.04;
       if (s.fam != null) common += (s.fam - 50) * 0.04;
       if (s.morale != null) common += (s.morale - 50) * 0.04;
+      if (s.leader) common += s.leader;
       if (!this.opts.neutral && t.side === 0) common += 1.5;
       if (s.homeBoost) common += s.homeBoost;
       const L = {
@@ -252,8 +253,22 @@
           if (rnd() < ir) this._injury(X, e);
         }
         // 体力消耗
-        const drain = 0.55 * (xs.style === 'press' ? 1.25 : 1) * (xs.ment === 'att' ? 1.05 : 1);
+        const heat = this.opts.heat && !X.spec.acclimatized ? 1.15 : 1;
+        const drain = 0.55 * (xs.style === 'press' ? 1.25 : 1) * (xs.ment === 'att' ? 1.05 : 1) * heat;
         for (const e of this.active(X)) e.stamina = Math.max(5, e.stamina - drain * (e.slot === 'GK' ? 0.3 : 1) * (0.85 + rnd() * 0.3));
+      }
+      // クラブとの約束による出場時間の上限
+      for (const t of this.teams) {
+        const lim = t.spec.limits;
+        if (!lim) continue;
+        for (const e of this.active(t)) {
+          const cap = lim[e.p.id];
+          if (cap && this.minute - e.minIn >= cap && t.subsLeft > 0 && !e.capped) {
+            e.capped = true;
+            this.log(t.side, 'sub_note', `クラブとの約束により${e.p.name}は${cap}分で交代`);
+            this._replace(t, e);
+          }
+        }
       }
       // AI交代
       for (const t of this.teams) {
@@ -324,7 +339,7 @@
       const act = this.active(X);
       const sp = X.spec.setPlay || {};
       const spFam = sp.fam == null ? 50 : sp.fam;
-      const spMult = (X.spec.setPiece ? 1.3 : 1) * (0.85 + spFam / 333);
+      const spMult = (X.spec.setPiece ? 1.3 : 1) * (0.85 + spFam / 333) * (X.spec.spWeak || 1);
       // 相手の守り方
       const ysp = Y.spec.setPlay || {};
       const yAerial = this.active(Y).filter(e => ['CB', 'ST', 'DM'].includes(e.slot) && has(e.p, '空中戦')).length;
@@ -390,7 +405,7 @@
       const e = who || pickW(this.active(X), e => DEF_W[e.slot] * (has(e.p, 'ボール奪取') || has(e.p, '対人守備') ? 1.3 : 1));
       if (!e || e.sent) return;
       X.stats.fouls++;
-      if (rnd() < 0.02) { this._sendOff(X, e, '一発レッド'); return; }
+      if (rnd() < 0.012) { this._sendOff(X, e, '一発レッド'); return; }
       e.yc++; X.stats.yellow++; e.rating -= 0.3;
       if (e.yc >= 2) this._sendOff(X, e, '2枚目のイエロー');
       else this.log(X.side, 'yellow', `${e.p.name}にイエローカード`);

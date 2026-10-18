@@ -276,6 +276,15 @@ td.nm:hover { text-decoration: underline; }
 .spsel span { display: block; font-size: 11px; font-weight: 700; color: var(--ink-3); letter-spacing: .08em; margin-bottom: 3px; }
 .spsel select { width: 100%; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 6px; font: inherit; font-size: 13px; }
 
+/* ---------- 主将・規律・クラブ要望 ---------- */
+.chip.cap { background: var(--ink); color: var(--panel); border-color: transparent; }
+.slot .shirt { position: relative; }
+.slot .arm { position: absolute; right: -6px; top: -6px; width: 16px; height: 16px; border-radius: 50%; background: var(--hi); color: #fff; font-style: normal; font-size: 10px; display: grid; place-items: center; border: 1px solid #fff; }
+.discipline { background: var(--hi-soft); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
+.discipline b { color: var(--hi); }
+.clubreq { margin-top: 16px; border-top: 2px solid var(--line); padding-top: 12px; }
+.clubreq h3 { font-size: 13px; margin-bottom: 8px; }
+
 /* ---------- 試合 ---------- */
 .live { max-width: 980px; }
 .board { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; align-items: center; background: var(--ink); color: var(--panel); border-radius: 10px; padding: 14px 16px; }

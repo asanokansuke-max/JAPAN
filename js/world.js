@@ -191,7 +191,7 @@
       // 負傷の回復
       if (p.injury > 0) {
         const before = p.injury;
-        p.injury = Math.max(0, p.injury - WEEKS_PER_MONTH);
+        p.injury = Math.max(0, p.injury - WEEKS_PER_MONTH * (S.upgrades && S.upgrades.medical && p.caps > 0 ? 1.2 : 1));
         if (p.injury <= 0 && before > 0) {
           p.returned = A.dateKey();
           if (p.inj && p.inj.major) { p.ovr -= 1 + rnd() * 2; p.sharp = 25; if (relevant(S, p)) A.addNews('復帰', `${p.name}が${p.inj.t}から復帰。完全復活までは時間がかかりそうだ。`); }

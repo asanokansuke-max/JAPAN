@@ -3,18 +3,12 @@
 'use strict';
 const path = require('path');
 const load = f => require(path.join(__dirname, '..', 'js', f));
-['data.js', 'engine.js', 'world.js', 'game.js', 'staff.js', 'media.js', 'camp.js'].forEach(load);
+['data.js', 'engine.js', 'world.js', 'game.js', 'staff.js', 'media.js', 'camp.js', 'extra.js'].forEach(load);
 const { SBEngine: E, SBGame: G } = globalThis;
 
 function autoSquad() {
   const S = G.state();
-  const ps = G.visible().filter(G.available);
-  const by = pos => ps.filter(p => p.pos === pos).sort((a, b) => b.ovr - a.ovr);
-  const pick = new Set();
-  by('GK').slice(0, 3).forEach(p => pick.add(p.id));
-  const field = ps.filter(p => p.pos !== 'GK').sort((a, b) => b.ovr - a.ovr);
-  for (const p of field) { if (pick.size >= 26) break; pick.add(p.id); }
-  S.squad = [...pick];
+  S.squad = G.autoSquad();
   S.xi = G.autoPick(S.squad, S.formation);
 }
 
