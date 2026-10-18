@@ -25,12 +25,13 @@
     let v = p.ovr + p.form * 0.7 + (sharp(p) - 70) * 0.05 + (p.chem || 0) * 0.01;
     if (p.status === 'bench') v -= 1;
     if (W.weeksSinceReturn(S, p) < 6) v -= 1;
+    if (p.injury > 0) v -= 1.2; // 軽傷なら初戦は微妙
     return v;
   }
 
   function recommend(n) {
     if (G.isOly()) return recommendOly();
-    const ps = G.visible().filter(G.available);
+    const ps = G.visible().filter(G.callable);
     const quota = [[['GK'], 3], [['CB'], 5], [['LB', 'RB'], 4], [['DM', 'CM'], 5], [['AM', 'LW', 'RW'], 6], [['ST'], 3]];
     const pick = new Set();
     for (const [poss, q] of quota) ps.filter(p => poss.includes(p.pos)).sort((a, b) => value(b) - value(a)).slice(0, q).forEach(p => pick.add(p.id));
@@ -40,7 +41,7 @@
 
   // 五輪：U-23から15人、オーバーエイジ3人
   function recommendOly() {
-    const ps = G.visible().filter(G.available);
+    const ps = G.visible().filter(G.callable);
     const u = ps.filter(G.olyEligible);
     const quota = [[['GK'], 2], [['CB'], 3], [['LB', 'RB'], 2], [['DM', 'CM'], 3], [['AM', 'LW', 'RW'], 3], [['ST'], 2]];
     const pick = new Set();
@@ -56,7 +57,7 @@
 
   function outReason(p) {
     const S = G.state();
-    if (p.injury > 0) return `${W.injText(p)}。今回は招集できません`;
+    if (!G.callable(p)) return `${W.injText(p)}。今回は間に合いません`;
     if (p.status === 'bench') return `${p.club}で出場機会を失っています（${seasonLine(p)}）`;
     if (sharp(p) < 50) return 'クラブでの出場時間が少なく、試合勘に不安があります';
     if (W.weeksSinceReturn(S, p) < 6) return '負傷から復帰して間もなく、無理をさせたくありません';
@@ -90,7 +91,8 @@
       const ins = rec.filter(id => !cur.includes(id)).map(G.player);
       const grp = p => E.POS_GROUP[p.pos];
       // 同じポジション群で入れ替えを組む
-      outs.sort((a, b) => ((b.injury > 0) - (a.injury > 0)) || value(a) - value(b));
+      const late = p => !G.callable(p);
+      outs.sort((a, b) => (late(b) - late(a)) || value(a) - value(b));
       const used = new Set();
       for (const o of outs) {
         const i = ins.find(x => !used.has(x.id) && grp(x) === grp(o)) || ins.find(x => !used.has(x.id) && o.pos !== 'GK' && x.pos !== 'GK');
@@ -98,22 +100,23 @@
         used.add(i.id);
         coach.swaps.push({ out: o.id, in: i.id, outWhy: outReason(o), inWhy: inReason(i) });
       }
-      const hurt = coach.swaps.filter(x => G.player(x.out).injury > 0);
+      const hurt = coach.swaps.filter(x => late(G.player(x.out)));
       coach.swaps = hurt.concat(coach.swaps.filter(x => !hurt.includes(x)).slice(0, Math.max(0, 6 - hurt.length)));
       // 代わりが見つからなかった負傷者も外す提案に含める
-      outs.filter(o => o.injury > 0 && !coach.swaps.some(x => x.out === o.id)).forEach(o => coach.swaps.unshift({ out: o.id, in: null, outWhy: outReason(o), inWhy: '' }));
+      outs.filter(o => late(o) && !coach.swaps.some(x => x.out === o.id)).forEach(o => coach.swaps.unshift({ out: o.id, in: null, outWhy: outReason(o), inWhy: '' }));
       coach.summary = coach.swaps.length ? `前回のメンバーから${coach.swaps.length}件の入れ替えを提案します。クラブでの状態を見て判断しました。` : '前回のメンバーで問題ありません。全員クラブで順調です。';
     }
     // 負傷で選外にした主な選手
-    coach.injured = G.visible().filter(p => p.injury > 0 && (cur.includes(p.id) || (S.cur.prevSquad || []).includes(p.id) || p.chem >= 40 || p.ovr >= 74 || p.caps > 0))
+    coach.injured = G.visible().filter(p => !G.callable(p) && p.injury > 0 && (cur.includes(p.id) || (S.cur.prevSquad || []).includes(p.id) || p.chem >= 40 || p.ovr >= 74 || p.caps > 0))
       .sort((a, b) => b.ovr - a.ovr).map(p => ({ id: p.id, text: `${W.injText(p)}。${W.returnDateText(S, p)}の復帰見込みのため、今回は選外とします。` }));
-    const gk = cur.map(G.player).filter(p => p && p.pos === 'GK' && G.available(p)).length;
+    cur.map(G.player).filter(p => p && G.minorInjury(p)).forEach(p => coach.notes.push(`${p.name}は軽傷（${W.injText(p)}）。合宿は別メニューで調整すれば間に合う見込みなので、招集して問題ありません。`));
+    const gk = cur.map(G.player).filter(p => p && p.pos === 'GK' && G.callable(p)).length;
     if (cur.length && gk < 3) coach.notes.push(`使えるGKが${gk}人しかいません。最低3人は必要です。`);
     if (ev.kind === 'tour') coach.notes.push('大会中はメンバーを入れ替えられません。複数ポジションをこなせる選手が重宝します。');
     if (ev.kind === 'qual') coach.notes.push('予選はアウェーの移動も厳しい。コンディションを最優先にしましょう。');
 
     // スカウト推薦
-    const pool = G.visible().filter(p => G.available(p) && !cur.includes(p.id) && (cur.length || !rec.includes(p.id)));
+    const pool = G.visible().filter(p => G.callable(p) && !cur.includes(p.id) && (cur.length || !rec.includes(p.id)));
     const fresh = p => !p.scoutedAt || (S.date.y * 12 + S.date.m) - p.scoutedAt > 5;
     const picks = [];
     const add = (p, tag, text) => { if (p && !picks.some(x => x.id === p.id)) { picks.push({ id: p.id, tag, text }); p.scoutedAt = S.date.y * 12 + S.date.m; } };
@@ -136,7 +139,8 @@
     const watch = G.visible().filter(p => cur.includes(p.id) || rec.includes(p.id) || (S.cur.prevSquad || []).includes(p.id) || p.chem >= 30 || p.ovr >= 72 || p.caps > 0);
     const medical = [];
     watch.forEach(p => {
-      if (p.injury > 0) medical.push({ id: p.id, lv: 'bad', text: `${W.injText(p)}。${W.returnDateText(S, p)}の復帰見込み。` });
+      if (G.minorInjury(p)) medical.push({ id: p.id, lv: 'warn', text: `軽傷（${W.injText(p)}）。合宿は別メニューで調整すれば、${p.injury <= 0.8 ? '初戦' : '2戦目'}には間に合う見込みです。招集は問題ありません。` });
+      else if (p.injury > 0) medical.push({ id: p.id, lv: 'bad', text: `${W.injText(p)}。${W.returnDateText(S, p)}の復帰見込みで、今回は間に合いません。` });
       else if (W.weeksSinceReturn(S, p) < 9) medical.push({ id: p.id, lv: 'warn', text: `${p.inj ? p.inj.t : '負傷'}から復帰したばかり。再発リスクが高く、フル出場は避けたい。` });
       else if ((p.load || 0) > 500 && (cur.includes(p.id) || rec.includes(p.id))) medical.push({ id: p.id, lv: 'warn', load: p.load, text: `${W.club(S, p.club).cl ? 'CLを含む' : ''}過密日程で、先月は${p.month ? p.month.min : 0}分出場。疲労が心配です。` });
       else if (sharp(p) < 45 && (cur.includes(p.id) || rec.includes(p.id))) medical.push({ id: p.id, lv: 'warn', text: 'クラブでの出場が少なく、試合勘と体力が落ちています。' });

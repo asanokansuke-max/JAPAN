@@ -22,7 +22,7 @@
     const returns = ps.filter(p => p.campCount && !prev.includes(p.id) && p.lastCamp && (S.date.y * 12 + S.date.m) - p.lastCamp >= 8);
     // 注目の落選：人気があり、前回いた or 好調
     const omissions = G.active().filter(p => !S.squad.includes(p.id) && G.available(p) && pop(p) >= 45 && (prev.includes(p.id) || p.form >= 1)).sort((a, b) => pop(b) - pop(a)).slice(0, 3);
-    const injuredStars = G.active().filter(p => p.injury > 0 && pop(p) >= 50).sort((a, b) => pop(b) - pop(a)).slice(0, 2);
+    const injuredStars = G.active().filter(p => !G.callable(p) && p.injury > 0 && pop(p) >= 50).sort((a, b) => pop(b) - pop(a)).slice(0, 2);
     return { firsts: firsts.map(p => p.id), returns: returns.map(p => p.id), omissions: omissions.map(p => p.id), injured: injuredStars.map(p => p.id) };
   }
 

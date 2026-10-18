@@ -190,6 +190,10 @@
   function curGroup() { const ev = event(); if (!S.cur || S.cur.kind === 'friendly' || !ev) return 'friendly'; return compGroup(ev.comp); }
   function suspended(p) { return !!p.susp && (p.suspComp == null || p.suspComp === curGroup()); }
   function available(p) { return p && !p.retired && !p.lost && p.injury <= 0 && !suspended(p) && !(p.awayGames > 0); }
+  // 招集できる負傷の上限（週）：合宿中に治る程度の軽傷なら呼べる
+  function injuryLimit() { const ev = event(); return ev && ev.kind === 'tour' ? 2.5 : 1.5; }
+  function minorInjury(p) { return p.injury > 0 && p.injury <= injuryLimit(); }
+  function callable(p) { return p && !p.retired && !p.lost && p.injury <= injuryLimit() && !(p.awayGames > 0); }
   function makeExternal(o) { const p = makePlayer(o); p.hist.push([dateKey(), Math.round(p.ovr)]); S.players.push(p); return p; }
   // 五輪：2028年はU-23（2005年以降生まれ）＋オーバーエイジ3人
   function isOly() { const ev = event(); return !!ev && ev.comp === 'olympic'; }
@@ -568,14 +572,15 @@
     const issues = [];
     const ev = event();
     const oly = isOly();
-    const olyPool = oly ? visible().filter(p => available(p) && olyEligible(p)).length + 3 : 99;
+    const olyPool = oly ? visible().filter(p => callable(p) && olyEligible(p)).length + 3 : 99;
     const max = squadMax(), min = oly ? Math.min(16, olyPool) : ev.kind === 'tour' ? 23 : 20;
     if (ps.length > max) issues.push(`招集は最大${max}人です（現在${ps.length}人）`);
     if (ps.length < min) issues.push(`最低${min}人を招集してください（現在${ps.length}人）`);
     const gk = ps.filter(p => p.pos === 'GK').length;
     if (gk < (oly ? 2 : 3)) issues.push(`GKを${oly ? 2 : 3}人以上招集してください`);
     if (oly) { const oa = ps.filter(p => !olyEligible(p)).length; if (oa > 3) issues.push(`オーバーエイジ（2004年以前生まれ）は3人までです（現在${oa}人）`); }
-    if (ps.some(p => p.injury > 0)) issues.push('負傷中の選手が含まれています');
+    const hurt = ps.filter(p => p.injury > injuryLimit());
+    if (hurt.length) issues.push(`間に合わない負傷者が含まれています（${hurt.map(p => p.name).join('・')}）`);
     return issues;
   }
 
@@ -641,6 +646,8 @@
     // 招集外は連携が落ちる
     active().forEach(p => { if (!S.squad.includes(p.id)) p.chem = Math.max(0, p.chem - 4); });
     S.squad.map(player).forEach(p => {
+      // 軽傷の選手は別メニューで調整
+      if (p.injury > 0) { p.sepMenu = true; addNews('招集', `${p.name}は${p.inj ? p.inj.t : '軽傷'}のため合宿は別メニューで調整。`); }
       p.chem = Math.min(100, p.chem + 5);
       p.know = 3;
       p.cond = campCondition(p);
@@ -660,6 +667,11 @@
   function finishCamp() {
     if (S.phase !== 'camp') return;
     const c = S.cur.camp;
+    // 合宿の日数分だけ回復が進む
+    S.squad.map(player).forEach(p => {
+      if (p.injury > 0) { p.injury = Math.max(0, p.injury - c.days * 0.2); p.cond = Math.min(p.cond, 86); if (p.injury <= 0) addNews('招集', `${p.name}が全体練習に合流。`); }
+      p.sepMenu = false;
+    });
     S.trainBonus = c.bonus;
     S.training = c.done.slice();
     if (!S.xi.length || S.xi.some(id => !S.squad.includes(id) || !available(player(id)))) S.xi = autoPick(S.squad, S.formation);
@@ -1140,7 +1152,7 @@
   root.SBGame = {
     CALENDAR, STATUS_LABEL, newGame, load, save, clearSave, state, setState, event, player, active, nation, nname,
     age, ageInt, attributes, potRange, potGrade, autoPick, xiRating, teamChem, japanStrength, slotsOf, available, squadIssues,
-    makeExternal, curGroup, compGroup, squadMax, isOly, olyEligible, suspended, confirmCamp, announce, startPress, answerPress, startCamp, trainSession, finishCamp, addNews, visible, scout, autoSquad, nextFixture, createMatch, applyResult, eventFinished, endEvent, advance, table, tourGroupOfJapan, dateStr,
+    makeExternal, injuryLimit, minorInjury, callable, curGroup, compGroup, squadMax, isOly, olyEligible, suspended, confirmCamp, announce, startPress, answerPress, startCamp, trainSession, finishCamp, addNews, visible, scout, autoSquad, nextFixture, createMatch, applyResult, eventFinished, endEvent, advance, table, tourGroupOfJapan, dateStr,
     nationSpec, japanSpec, stepMonth, oppPlan, refreshReports, campCondition
   };
 })(typeof window !== 'undefined' ? window : globalThis);
