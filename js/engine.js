@@ -184,6 +184,7 @@
       if (s.morale != null) common += (s.morale - 50) * 0.04;
       if (s.leader) common += s.leader;
       if (s.pairs) common += s.pairs;
+      if (s.htBoost && this.minute > 45) common += s.htBoost;
       if (!this.opts.neutral && t.side === 0) common += 1.5;
       if (s.homeBoost) common += s.homeBoost;
       const L = {
@@ -526,6 +527,7 @@
       ne.minIn = this.minute;
       X.onPitch[idx] = ne;
       X.subsLeft--;
+      if (this.minute < 60 && !e.injured && !e.sent) this.flags.push({ side, type: 'subOff', pid: e.p.id, min: this.minute });
       this.events.push({ min: this.minute, side, type: 'sub', text: `交代：${e.p.name} → ${p.name}` });
       if (this._new) this._new.push(this.events[this.events.length - 1]);
       return true;

@@ -159,6 +159,8 @@
     if (fx.comp === 'wc') p += 0.5;
     const reg = root.SBExtra ? root.SBExtra.regionOf(fx.opp) : '';
     if (fx.venue === 'away' && ['ME', 'EA', 'CA', 'SEA'].includes(reg)) p += 0.8;
+    // ホームでも世論が冷え込んでいれば重圧に
+    if (fx.venue === 'home' && S.fans < 30) p += 0.7;
     const pp = S.cur.prePress && S.cur.prePress[fx.label + fx.opp];
     if (pp && pp.done === 'calm') p -= 1;
     if (pp && pp.done === 'bold') p += 0.5;

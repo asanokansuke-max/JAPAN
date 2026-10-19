@@ -323,6 +323,10 @@ main.with-bar { padding-bottom: 110px; }
 
 .swaprow.same { border-left: 3px solid var(--ai); }
 
+.notes { margin: 6px 0 8px; padding-left: 18px; font-size: 12px; color: var(--ink-2); display: grid; gap: 2px; }
+.hero-notes { color: rgba(255, 255, 255, .9); }
+.talk { background: var(--ai-soft); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; display: grid; gap: 6px; }
+
 /* ---------- 試合 ---------- */
 .live { max-width: 980px; }
 .board { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; align-items: center; background: var(--ink); color: var(--panel); border-radius: 10px; padding: 14px 16px; }

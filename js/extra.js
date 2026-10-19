@@ -262,8 +262,11 @@
     const m = S.meeting;
     if (!m || m.asked) return null;
     m.asked = key;
-    const p = S.board >= 65 ? 0.9 : S.board >= 50 ? 0.6 : S.board >= 35 ? 0.3 : 0.1;
-    if (rnd() < p) { S.upgrades[key] = true; m.result = `協会は「${UPGRADES[key].name}」を承認した。`; G.addNews('協会', `協会が${UPGRADES[key].name}を承認。`, 'good'); }
+    // 協会の評価と強化予算の両方で決まる
+    const funds = S.funds == null ? 50 : S.funds;
+    if (funds < 20) { m.result = `協会は「${UPGRADES[key].name}」を見送った。「今は強化予算が足りない」とのこと（予算${Math.round(funds)}）。`; G.save(); return m.result; }
+    const p = (S.board >= 65 ? 0.9 : S.board >= 50 ? 0.6 : S.board >= 35 ? 0.3 : 0.1) * (funds >= 60 ? 1.1 : funds >= 35 ? 1 : 0.7);
+    if (rnd() < p) { S.upgrades[key] = true; S.funds = funds - 20; m.result = `協会は「${UPGRADES[key].name}」を承認した。`; G.addNews('協会', `協会が${UPGRADES[key].name}を承認。`, 'good'); }
     else { S.board = clamp(S.board - 2, 0, 100); m.result = `協会は「${UPGRADES[key].name}」を見送った。「まずは結果を」とのこと。`; }
     G.save();
     return m.result;

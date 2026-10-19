@@ -16,7 +16,9 @@
     recovery: { name: 'リカバリー', desc: '移動と時差の疲れを抜く。コンディション +6', load: -6 },
     youth: { name: '若手の個別指導', desc: '23歳以下の能力が伸びる', load: 1 },
     meeting: { name: 'チームミーティング', desc: '目標と役割を共有。士気 +6', load: 0 },
-    bond: { name: '食事会・レクリエーション', desc: '選手同士の距離を縮める。士気 +3、連携 +4', load: -2 }
+    bond: { name: '食事会・レクリエーション', desc: '選手同士の距離を縮める。士気 +3、連携 +4', load: -2 },
+    practiceS: { name: '非公開の練習試合（強豪）', desc: '実戦で熟成度 +5。負ければ士気が下がる', load: 3, tourOnly: true },
+    practiceW: { name: '非公開の練習試合（格下）', desc: '熟成度 +5。勝って弾みをつける', load: 2, tourOnly: true }
   };
 
   function squad() { const S = G.state(); return S.squad.map(G.player).filter(p => p && !p.retired); }
@@ -45,6 +47,7 @@
       if (star) { star.form = clamp(star.form + 0.8, -3, 3); mood(star, 0.5); lines.push(`紅白戦で${star.name}が${pickW(['2ゴールの猛アピール', '圧巻のプレーで存在感', '主力組相手に躍動'], () => 1)}`); }
     }
     if (key === 'recovery') lines.push('全体のコンディションが回復');
+    if ((key === 'practiceS' || key === 'practiceW') && root.SBDepth) lines.push(root.SBDepth.practiceMatch(key === 'practiceS' ? 'strong' : 'weak'));
     if (key === 'youth') {
       const ys = sq.filter(p => G.age(p) < 24);
       const grown = [];

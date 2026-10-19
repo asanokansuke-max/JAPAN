@@ -3,7 +3,7 @@
 'use strict';
 const path = require('path');
 const load = f => require(path.join(__dirname, '..', 'js', f));
-['data.js', 'engine.js', 'world.js', 'game.js', 'staff.js', 'media.js', 'camp.js', 'extra.js', 'ranking.js', 'life.js'].forEach(load);
+['data.js', 'engine.js', 'world.js', 'game.js', 'staff.js', 'media.js', 'camp.js', 'extra.js', 'ranking.js', 'life.js', 'depth.js'].forEach(load);
 const { SBEngine: E, SBGame: G } = globalThis;
 
 function autoSquad() {

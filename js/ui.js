@@ -1,7 +1,7 @@
 // 画面描画と操作
 (function () {
   'use strict';
-  const G = window.SBGame, E = window.SBEngine, W = window.SBWorld, ST = window.SBStaff, M = window.SBMedia, C = window.SBCamp, X = window.SBExtra, LF = window.SBLife, RK = window.SBRank;
+  const G = window.SBGame, E = window.SBEngine, W = window.SBWorld, ST = window.SBStaff, M = window.SBMedia, C = window.SBCamp, X = window.SBExtra, LF = window.SBLife, RK = window.SBRank, DP = window.SBDepth;
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const $ = id => document.getElementById(id);
   const fmt1 = v => (Math.round(v * 10) / 10).toFixed(1);
@@ -152,6 +152,7 @@
             <div class="opp"><b>日本</b><span>先発 ${fmt1(G.xiRating(S.xi, S.formation))} ・ ${esc(S.formation)} ・ ${E.MENT[S.tactics.ment]}／${E.STYLE[S.tactics.style]}</span></div></div>
           ${(() => { const vi = X.venueInfo(fx); return `<p style="margin:0 0 6px">会場：${esc(vi.city)}${vi.climate ? ` ・ 気候：<b>${esc(vi.climate)}</b>（${vi.oppAcclim ? '相手は慣れている。' : ''}消耗が激しい）` : ''}</p>`; })()}
           ${(() => { const cd = G.oppPlan(fx).cond; const pr = LF.pressure(fx); return cd ? `<p style="margin:0 0 6px">天候：${esc(cd.weather)} ・ ピッチ：${esc(cd.pitch)} ・ 主審：${esc(cd.ref.nat)}出身（${esc(cd.ref.label)}） ・ プレッシャー：<b>${LF.pressureLabel(pr)}</b></p>` : ''; })()}
+          ${matchNotes(S, fx).replace('class="notes"', 'class="notes hero-notes"')}
           <p style="margin:0 0 12px">分析担当：${esc(ST.analyst(fx).why)}${S.cur.focus && S.cur.focus[X.focusKey(fx)] ? ` 分析の重点：${esc(X.FOCUS[S.cur.focus[X.focusKey(fx)]].name)}` : ''}</p>
           ${S.cur.leaveReq ? `<div class="hero-ask"><b>選手からの申し出</b><p>${esc(S.cur.leaveReq.text)}</p><div class="row"><button class="btn" data-act="leave" data-v="allow">許可する（離脱）</button><button class="btn" data-act="leave" data-v="refuse">チームに残ってもらう</button></div></div>` : ''}
           ${LF.needsPrePress(fx) ? (() => { const q = LF.prePressQuestion(fx); return `<div class="hero-ask"><b>前日会見</b><p>${esc(q.q)}</p><div class="answers">${q.a.map(([k, tone, t]) => `<button class="ans" data-act="prepress" data-v="${k}"><span class="chip">${tone}</span><span>${esc(t)}</span></button>`).join('')}</div><p class="small" style="margin:6px 0 0;opacity:.8">強気は士気が上がるが重圧も増す。平常心は重圧を和らげ、選手を守れば若手が硬くなりにくい。</p></div>`; })() : ''}
@@ -191,6 +192,7 @@
     return `<div class="grid" style="gap:16px">
       ${hero}
       ${consultCard(S)}
+      ${baseCard(S)}
       <div class="grid g2">
         <section class="card"><h2>ニュース<span class="sub">クラブでの活躍・移籍・負傷</span></h2>
           <ul class="news">${S.news.slice(0, 14).map(n => `<li class="${n.kind}"><span class="d">${esc(n.d)}</span><span><span class="tag">${esc(n.tag)}</span>${esc(n.text)}</span></li>`).join('')}</ul>
@@ -202,6 +204,16 @@
           ${resetBlock()}
         </div>
       </div></div>`;
+  }
+
+  function baseCard(S) {
+    const ev = G.event();
+    if (S.phase !== 'prep' || ev.kind !== 'tour') return '';
+    const opts = DP.baseOptions(ev.comp);
+    if (!opts) return '';
+    const cur = S.cur.base && S.cur.base.key;
+    return `<section class="card"><h2>ベースキャンプ<span class="sub">大会中の拠点。回復・暑さへの慣れ・移動に影響する</span></h2><div class="trainings">${opts.map(([k, name, desc]) => `<button class="train" data-act="base" data-v="${k}" aria-pressed="${cur === k}"><b>${esc(name)}</b><span>${esc(desc)}</span></button>`).join('')}</div>
+      <p class="small muted" style="margin:8px 0 0">合宿では非公開の練習試合（強豪・格下）も組める。${cur ? '' : '選ばなければ最初の候補になる。'}</p></section>`;
   }
 
   function consultCard(S) {
@@ -220,7 +232,7 @@
     const offer = m.offer === 'extend' ? `<div class="sugg"><div><b>契約延長のオファー</b><div class="small">協会は2034年までの契約延長を提示している。受ければ解任されにくくなる。</div></div>${m.offerDone ? `<span class="small muted">${m.offerDone === 'accept' ? '合意した' : '保留した'}</span>` : '<div class="row"><button class="btn sm primary" data-act="offer" data-v="1">受ける</button><button class="btn sm" data-act="offer" data-v="0">保留する</button></div>'}</div>`
       : m.offer === 'warning' ? '<div class="med bad"><b>最後通告</b><div class="small">会長から「次の活動で結果を」と告げられた。評価が下がると解任の危険が高い。</div></div>' : '';
     return `<section class="card"><h2>協会との面談<span class="sub">${esc(m.title)} ・ 協会評価 ${Math.round(S.board)}</span></h2>
-      <p class="quote">技術委員長と今後の強化方針を話し合う。要望は1つまで。評価が高いほど通りやすい。</p>
+      <p class="quote">技術委員長と今後の強化方針を話し合う。要望は1つまで。協会評価と強化予算（現在 <b>${Math.round(S.funds == null ? 50 : S.funds)}</b>、承認されると20を使う）が高いほど通りやすい。予算は勝利と世論、スポンサーで増える。</p>
       <div class="plist">${offer}
       ${m.asked ? `<div class="med ${/承認/.test(m.result) ? '' : 'warn'}"><div class="small">${esc(m.result)}</div></div>` : m.options.map(k => `<div class="sugg"><div><b>${esc(X.UPGRADES[k].name)}</b><div class="small muted">${esc(X.UPGRADES[k].desc)}</div></div><button class="btn sm" data-act="ask" data-v="${k}">要望する</button></div>`).join('') || '<p class="small muted">すべての強化策が実施済み。</p>'}</div>
       ${Object.keys(S.upgrades || {}).length ? `<p class="small muted" style="margin:10px 0 0">実施済み：${Object.keys(S.upgrades).map(k => esc(X.UPGRADES[k].name)).join('・')}</p>` : ''}
@@ -309,6 +321,7 @@
         <div class="row"><span class="small">推奨：<b>${E.MENT[a.rec.ment]} ／ ${E.STYLE[a.rec.style]}</b></span>${applied ? '<span class="chip good">適用中</span>' : `<button class="btn sm primary" data-act="apply-plan" data-m="${a.rec.ment}" data-s="${a.rec.style}">この作戦にする</button>`}</div>
         ${(() => { const vi = X.venueInfo(fx); return `<p class="small" style="margin:10px 0 0">会場：${esc(vi.city)}${vi.climate ? ` ・ <b>${esc(vi.climate)}</b>。日本は体力の消耗が15%増える${vi.oppAcclim ? '（相手は慣れている）' : ''}。ハイプレスは避けたい` : ''}</p>`; })()}
         ${(() => { const cd = G.oppPlan(fx).cond; return cd ? `<p class="small" style="margin:6px 0 0">予報：${esc(cd.weather)}${cd.weather !== '晴れ' ? (cd.weather === '強風' ? '。セットプレーの精度が落ちる' : '。ボールが走り、パスをつなぐサッカーは難しくなる') : ''} ・ ピッチ：${esc(cd.pitch)}${cd.pitch === '荒れ' ? '（ポゼッションは不利）' : ''} ・ 主審は${esc(cd.ref.nat)}出身で${esc(cd.ref.label)}${cd.ref.strict >= 1.15 ? '。警告の多い選手は注意' : ''}</p>` : ''; })()}
+        ${matchNotes(S, fx)}
         <h3 style="font-size:13px;margin:16px 0 6px">分析の重点<span class="muted small">（試合ごとに1つ${S.upgrades && S.upgrades.analysis ? '・分析部門強化で効果1.5倍' : ''}）</span></h3>
         <div class="trainings">${Object.entries(X.FOCUS).map(([k, f]) => { const on = S.cur.focus && S.cur.focus[X.focusKey(fx)] === k; const extra = k === 'star' && a.stars[0] ? `（${a.stars[0]}）` : ''; return `<button class="train" data-act="focus" data-v="${k}" aria-pressed="${on}"><b>${esc(f.name)}${esc(extra)}</b><span>${esc(f.desc)}</span></button>`; }).join('')}</div>
       </section>
@@ -478,7 +491,7 @@
           <button class="ans" data-act="disc" data-v="strict"><span class="chip hi">厳罰</span><span>次の試合はメンバー外とする（本人は不満、規律は締まる）</span></button>
           <button class="ans" data-act="disc" data-v="warn"><span class="chip ai">注意</span><span>口頭で厳重注意にとどめる</span></button>
           <button class="ans" data-act="disc" data-v="ignore"><span class="chip">不問</span><span>大ごとにしない（チームに不満、報道されるおそれ）</span></button></div></div>` : ''}
-        ${left && !c.pending ? `<div class="trainings">${Object.entries(C.MENU).map(([k, m]) => `<button class="train" data-act="session" data-v="${k}"><b>${m.name}${c.done.includes(k) ? ` <span class="muted small">×${c.done.filter(x => x === k).length}</span>` : ''}</b><span>${m.desc}</span></button>`).join('')}</div>`
+        ${left && !c.pending ? `<div class="trainings">${Object.entries(C.MENU).filter(([, m]) => !m.tourOnly || G.event().kind === 'tour').map(([k, m]) => `<button class="train" data-act="session" data-v="${k}"><b>${m.name}${c.done.includes(k) ? ` <span class="muted small">×${c.done.filter(x => x === k).length}</span>` : ''}</b><span>${m.desc}</span></button>`).join('')}</div>`
           : c.pending ? '' : `<p>練習はすべて終わった。スタメンと戦術、セットプレーを確認して試合へ。</p><div class="row"><button class="btn big" data-act="tab" data-v="tactics">戦術・セットプレー</button><button class="btn go big" data-act="camp-end">合宿を打ち上げる</button></div>`}
         ${injured.length ? `<div class="confirm" style="margin-top:12px">${injured.map(p => esc(p.name)).join('・')}が負傷中。<button class="btn sm" data-act="tab" data-v="squad">追加招集を検討</button></div>` : ''}
         <h3 style="font-size:13px;margin:16px 0 6px">合宿の記録</h3>${campLog(c)}
@@ -629,6 +642,21 @@
   }
 
   // 次の試合の要点（戦術画面からそのまま試合へ）
+  // 試合前の補足：観客、相手の欠場者と新監督、戦術の研究、記録の節目
+  function matchNotes(S, fx) {
+    const out = [];
+    const at = DP.attendance(fx);
+    if (at) out.push(`${esc(at.stadium)}に${at.n.toLocaleString()}人の観客見込み（${Math.round(at.ratio * 100)}%）${at.ratio >= 0.9 ? '。満員の後押し' : at.ratio < 0.6 ? '。空席が目立つ' : ''}${S.fans < 30 ? '。スタンドの空気は厳しい' : ''}`);
+    const ab = DP.absentStars(fx.opp);
+    if (ab.length) out.push(`${esc(G.nname(fx.opp))}は${esc(ab.join('・'))}が負傷で欠場`);
+    const o = DP.opp(fx.opp);
+    if (o.coachNew >= 3 && o.pref) out.push(`${esc(G.nname(fx.opp))}は監督交代直後。${E.STYLE[o.pref.style]}を志向`);
+    const st = DP.staleness();
+    if (st) out.push(`同じ${esc(S.formation)}・${E.STYLE[S.tactics.style]}を続けていて相手に研究されている（相手 +${st.toFixed(2)}）`);
+    DP.upcomingMilestones().forEach(m => out.push(esc(m.text)));
+    return out.length ? `<ul class="notes">${out.map(x => `<li>${x}</li>`).join('')}</ul>` : '';
+  }
+
   function nextMatchCard(S) {
     if (S.phase !== 'match') return '';
     const fx = G.nextFixture();
@@ -639,6 +667,7 @@
     return `<section class="card nextmatch"><h2>次の試合<span class="sub">${esc(fx.label)}</span></h2>
       <p style="margin:0 0 6px"><b>日本 vs ${esc(G.nname(fx.opp))}</b> ・ 相手は${esc(a.plan.formation)}の${E.MENT[a.plan.ment]}／${E.STYLE[a.plan.style]}${cd ? ` ・ ${esc(cd.weather)}・ピッチ${esc(cd.pitch)}` : ''} ・ プレッシャー${LF.pressureLabel(LF.pressure(fx))}</p>
       <p class="small muted" style="margin:0 0 8px">分析担当の推奨：${E.MENT[a.rec.ment]}／${E.STYLE[a.rec.style]}。${esc(a.why)}</p>
+      ${matchNotes(S, fx)}
       <div class="row">${applied ? '<span class="chip good">推奨の作戦を適用中</span>' : `<button class="btn sm" data-act="apply-plan" data-m="${a.rec.ment}" data-s="${a.rec.style}">推奨の作戦にする</button>`}<button class="btn sm" data-act="tab" data-v="staff">分析の詳細</button></div></section>`;
   }
 
@@ -867,7 +896,7 @@
     const avgR = p.ratings.length ? (p.ratings.reduce((a, b) => a + b, 0) / p.ratings.length).toFixed(2) : '－';
     return `<div class="overlay" data-act="close-bg"><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(p.name)}">
       <div class="modal-h"><div><div class="eyebrow">${E.POS_LABEL[p.pos]}${p.alt.length ? ' / ' + p.alt.map(a => E.POS_LABEL[a]).join(' / ') : ''} ・ ${G.ageInt(p)}歳${p.real ? '' : ' ・ 新星'}</div><h2>${esc(p.name)}</h2>
-        <div class="row" style="margin-top:4px">${p.traits.map(t => `<span class="chip ${t === 'ガラスの体' ? 'bad' : 'ai'}">${esc(t)}</span>`).join('')} ${stateChips(p, { rumor: true })}</div></div>
+        <div class="row" style="margin-top:4px">${(() => { const k = DP.persona(p); return k ? `<span class="chip cap" title="${esc(DP.PERSONAS[k].desc)}">性格：${esc(DP.PERSONAS[k].name)}</span>` : ''; })()}${p.traits.map(t => `<span class="chip ${t === 'ガラスの体' ? 'bad' : 'ai'}">${esc(t)}</span>`).join('')} ${stateChips(p, { rumor: true })}</div></div>
         <button class="x" data-act="close" aria-label="閉じる">×</button></div>
       <div class="kv">
         <div><span>能力</span><b>${ovrTag(p.ovr)} <span class="muted small num">${fmt1(p.ovr)}</span></b></div>
@@ -875,7 +904,7 @@
         <div><span>調子</span><b>${formTag(p.form)} <span class="num">${p.form > 0 ? '+' : ''}${fmt1(p.form)}</span></b></div>
         <div><span>連携</span><b class="num">${Math.round(p.chem)}</b></div>
         <div><span>代表への意欲</span><b>${(p.mood || 0) >= 1.5 ? '非常に高い' : (p.mood || 0) >= 0.5 ? '高い' : (p.mood || 0) <= -1.2 ? '不満あり' : (p.mood || 0) <= -0.5 ? 'やや低い' : '普通'}</b></div>
-        <div><span>代表 出場/得点/A</span><b class="num">${p.caps} / ${p.goals} / ${p.assists}</b></div>
+        <div><span>代表 出場/得点/A</span><b class="num">${p.caps} / ${p.goals} / ${p.assists}</b>${(() => { const t = DP.capsTotal(p); return t.caps > p.caps ? `<div class="small muted">通算 ${t.caps}試合 ${t.goals}得点</div>` : ''; })()}</div>
         <div><span>代表 直近評価点</span><b class="num">${avgR}</b></div>
       </div>
       ${clubBlock(S, p, tierL)}
@@ -990,7 +1019,11 @@
 
   function panelHTML() {
     const sim = live.sim, us = sim.userSide, T = sim.teams[us];
-    return `<section class="card" style="margin-top:14px"><h2>采配<span class="sub">交代枠 残り${T.subsLeft} ・ ${esc(T.spec.formation)}</span></h2>
+    const brk = sim.phase === 'ht' || sim.phase === 'ft90';
+    const talked = live.talked && live.talked[sim.phase];
+    const diff = sim.score[us] - sim.score[1 - us];
+    const talk = brk ? `<div class="talk"><b>${sim.phase === 'ht' ? 'ハーフタイム' : '延長前'}の声かけ</b>${talked ? `<span class="small">「${esc(DP.TALKS[talked].name)}」で送り出した</span>` : `<div class="trainings">${Object.entries(DP.TALKS).map(([k, t]) => `<button class="train" data-act="talk" data-v="${k}"><b>${t.name}</b><span>${esc(t.desc)}</span></button>`).join('')}</div><p class="small muted" style="margin:6px 0 0">${diff < 0 ? '負けている。強い言葉が響くかもしれない' : diff > 0 ? '勝っている。締めるか、落ち着かせるか' : '同点。流れを引き寄せたい'}</p>`}</div>` : '';
+    return `<section class="card" style="margin-top:14px"><h2>采配<span class="sub">交代枠 残り${T.subsLeft} ・ ${esc(T.spec.formation)}</span></h2>${talk}
       <div class="grid g2">
         <div>${tacticBoard('live')}</div>
         <div>
@@ -1013,7 +1046,7 @@
     const title = rec.out === 'W' ? '勝利' : rec.out === 'L' ? '敗戦' : '引き分け';
     const md = rec.media;
     const fifaLine = rec.fifa ? `FIFAポイント ${rec.fifa > 0 ? '+' : ''}${rec.fifa}` : '';
-    return `<section class="card" style="margin-top:14px"><h2>${title}<span class="sub">協会評価 ${rec.board >= 0 ? '+' : ''}${rec.board} ・ ${fifaLine} ・ MOM ${esc(rec.motm)}</span></h2>${rec.travel ? `<p class="small muted" style="margin:0 0 8px">${esc(rec.travel)}</p>` : ''}
+    return `<section class="card" style="margin-top:14px"><h2>${title}<span class="sub">協会評価 ${rec.board >= 0 ? '+' : ''}${rec.board} ・ ${fifaLine} ・ MOM ${esc(rec.motm)}</span></h2>${rec.travel ? `<p class="small muted" style="margin:0 0 8px">${esc(rec.travel)}</p>` : ''}${rec.att ? `<p class="small muted" style="margin:0 0 8px">${esc(rec.att.stadium)} 観衆 ${rec.att.n.toLocaleString()}人</p>` : ''}
       ${md ? `<div class="media" style="margin-bottom:12px"><div class="headline"><span class="outlet">${esc(md.outlet)}</span><b>${esc(md.head)}</b></div><div class="sns">${md.comments.map(c => `<div>${esc(c)}</div>`).join('')}</div><p class="small muted" style="margin:6px 0 0">世論 ${md.fansD >= 0 ? '+' : ''}${md.fansD} ・ 士気 ${md.moraleD >= 0 ? '+' : ''}${md.moraleD}</p></div>` : ''}
       <div class="tbl-wrap"><table><thead><tr><th>選手</th><th>位置</th><th>出場</th><th>得点</th><th>A</th><th>評価</th></tr></thead><tbody>
       ${ps.map(x => `<tr><td>${esc(x.name)}${x.injured ? ' <span class="chip bad">負傷</span>' : ''}${x.red ? ' <span class="chip bad">退場</span>' : ''}</td><td class="small">${E.SLOT_LABEL[x.slot]}</td><td class="num">${x.minutes}'</td><td class="num">${x.goals || ''}</td><td class="num">${x.assists || ''}</td><td><span class="rt ${x.rating >= 7.5 ? 'hi' : x.rating < 5.8 ? 'lo' : ''}">${x.rating.toFixed(1)}</span></td></tr>`).join('')}
@@ -1123,6 +1156,16 @@
       toast(`${inp.name}を招集し、${out.name}を外した`);
     },
     'press-start'() { G.startPress(); render(); },
+    base(d) { DP.chooseBase(d.v); render(); toast('ベースキャンプを決めた'); },
+    talk(d) {
+      const sim = live.sim, us = sim.userSide, T = sim.teams[us];
+      const diff = sim.score[us] - sim.score[1 - us];
+      const eff = DP.talkEffect(d.v, diff);
+      T.spec.htBoost = (T.spec.htBoost || 0) + eff;
+      live.talked = live.talked || {}; live.talked[sim.phase] = d.v;
+      sim.events.push({ min: sim.minute, side: us, type: 'sub_note', text: `監督が${DP.TALKS[d.v].name}：${DP.TALKS[d.v].desc}${eff > 0.7 ? ' 選手の目の色が変わった' : eff < 0 ? ' ロッカールームの空気が重くなった' : ''}` });
+      renderLive();
+    },
     consult(d) { const r = LF.resolveConsult(+d.i, d.v); render(); if (r) toast(r); },
     leave(d) { const r = LF.resolveLeave(d.v); if (ui.modal && ui.modal.type === 'leave') ui.modal = null; render(); if (r) toast(r); },
     prepress(d) { const fx = G.nextFixture(); if (fx) { LF.answerPrePress(fx, d.v); if (ui.modal && ui.modal.type === 'prepress') ui.modal = null; render(); toast('前日会見を終えた'); } },
