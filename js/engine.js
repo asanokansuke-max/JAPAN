@@ -292,7 +292,7 @@
         if (rnd() < rate) this._shot(X, Y, LX, LY);
         if (rnd() < 0.05 * Math.sqrt(P[s] / 0.5)) this._setPiece(X, Y, LX, LY);
         if (rnd() < 0.0024 * Math.exp(0.02 * (LX.att - LY.def))) this._penalty(X, Y, LX, LY);
-        if (rnd() < 0.0185 * (xs.style === 'press' ? 1.2 : 1) * ((this.opts.ref && this.opts.ref.strict) || 1)) this._card(X);
+        if (rnd() < 0.0155 * (xs.style === 'press' ? 1.2 : 1) * ((this.opts.ref && this.opts.ref.strict) || 1)) this._card(X);
         for (const e of this.active(X)) {
           if (e.injured) continue;
           let ir = 0.00011 * (has(e.p, 'ガラスの体') ? 3 : 1) * (e.stamina < 40 ? 2 : 1);
@@ -459,10 +459,11 @@
     }
 
     _card(X, who) {
-      const e = who || pickW(this.active(X), e => DEF_W[e.slot] * (has(e.p, 'ボール奪取') || has(e.p, '対人守備') ? 1.3 : 1));
+      // 警告を受けた選手は慎重になるので、2枚目はもらいにくい
+      const e = who || pickW(this.active(X), e => DEF_W[e.slot] * (has(e.p, 'ボール奪取') || has(e.p, '対人守備') ? 1.3 : 1) * (e.yc ? 0.15 : 1));
       if (!e || e.sent) return;
       X.stats.fouls++;
-      if (rnd() < 0.012) { this._sendOff(X, e, '一発レッド'); return; }
+      if (rnd() < 0.006) { this._sendOff(X, e, '一発レッド'); return; }
       e.yc++; X.stats.yellow++; e.rating -= 0.3;
       if (e.yc >= 2) this._sendOff(X, e, '2枚目のイエロー');
       else this.log(X.side, 'yellow', `${e.p.name}にイエローカード`);

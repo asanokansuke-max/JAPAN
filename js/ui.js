@@ -781,7 +781,25 @@
     if (m.type === 'player') host.innerHTML = playerModal(S, G.player(m.id));
     if (m.type === 'slot') host.innerHTML = slotModal(S, m.i);
     if (m.type === 'role') host.innerHTML = roleModal(S, m);
+    if (m.type === 'swapout') host.innerHTML = swapOutModal(S, m.inId);
     if (m.type === 'prepress' || m.type === 'leave') host.innerHTML = taskModal(S, m.type);
+  }
+
+  // 満員のときの入れ替え：外す選手を選ぶ
+  function swapOutModal(S, inId) {
+    const ip = G.player(inId);
+    if (!ip) return '';
+    const g = E.POS_GROUP[ip.pos];
+    const ps = S.squad.map(G.player).filter(Boolean)
+      .sort((a, b) => ((E.POS_GROUP[b.pos] === g) - (E.POS_GROUP[a.pos] === g)) || ((a.pos === ip.pos ? 0 : 1) - (b.pos === ip.pos ? 0 : 1)) || (ST.value(a) - ST.value(b)));
+    const row = p => `<div class="pitem swaprow ${E.POS_GROUP[p.pos] === g ? 'same' : ''}">${posChip(p)}<div style="min-width:0"><div class="n">${esc(p.name)}</div><div class="c">${esc(p.club)} ・ ${G.ageInt(p)}歳 ・ ${esc(ST.seasonLine(p))}</div><div class="chips">${stateChips(p)}</div></div>${ovrTag(p.ovr)}<button class="btn sm" data-act="swap-out" data-out="${p.id}" data-in="${ip.id}">外す</button></div>`;
+    const same = ps.filter(p => E.POS_GROUP[p.pos] === g), other = ps.filter(p => E.POS_GROUP[p.pos] !== g);
+    return `<div class="overlay" data-act="close-bg"><div class="modal" role="dialog" aria-modal="true" aria-label="外す選手を選ぶ">
+      <div class="modal-h"><div><div class="eyebrow">招集枠は${G.squadMax()}人で満員</div><h2>${esc(ip.name)}を招集する</h2><p class="small muted" style="margin:2px 0 0">代わりに外す選手を選ぶ。同じポジションの選手を、スタッフ評価の低い順に上から並べた。</p></div><button class="x" data-act="close" aria-label="閉じる">×</button></div>
+      <div class="pitem" style="margin-bottom:12px;border:1px solid var(--ai)">${posChip(ip)}<div style="min-width:0"><div class="n">${esc(ip.name)} <span class="chip good">招集</span></div><div class="c">${esc(ip.club)} ・ ${G.ageInt(ip)}歳 ・ ${esc(ST.seasonLine(ip))}</div><div class="chips">${stateChips(ip)}</div></div>${ovrTag(ip.ovr)}<span></span></div>
+      <h3 style="font-size:13px;margin:0 0 6px">${E.POS_GROUP[ip.pos]}（同じポジション）</h3><div class="plist">${same.map(row).join('') || '<span class="muted small">いない</span>'}</div>
+      <details style="margin-top:12px"><summary class="small" style="cursor:pointer;font-weight:700">ほかのポジションの選手から外す（${other.length}人）</summary><div class="plist" style="margin-top:8px">${other.map(row).join('')}</div></details>
+    </div></div>`;
   }
 
   function taskModal(S, type) {
@@ -1059,7 +1077,11 @@
       }
       if (S.phase !== 'prep') return;
       if (i >= 0) { S.squad.splice(i, 1); S.xi = S.xi.map(x => x === d.id ? null : x); }
-      else { if (S.squad.length >= G.squadMax()) { toast(`招集は最大${G.squadMax()}人まで`); return; } S.squad.push(d.id); }
+      else {
+        // 満員なら外す選手を選んでもらう
+        if (S.squad.length >= G.squadMax()) { ui.modal = { type: 'swapout', inId: d.id }; renderModal(); return; }
+        S.squad.push(d.id);
+      }
       G.save(); render();
     },
     'auto-squad'() { const S = G.state(); S.squad = G.autoSquad(); S.xi = G.autoPick(S.squad, S.formation); G.save(); render(); toast(`${S.squad.length}人を自動選考した`); },
@@ -1080,6 +1102,16 @@
     'apply-plan'(d) { const S = G.state(); S.tactics.ment = d.m; S.tactics.style = d.s; G.save(); render(); toast('分析担当の作戦を採用した'); },
     rotate(d) { const S = G.state(); const i = +d.i; const cur = S.xi.indexOf(d.id); if (cur >= 0) S.xi[cur] = S.xi[i]; S.xi[i] = d.id; G.save(); render(); toast('先発を入れ替えた'); },
     announce() { if (G.announce()) { tab = 'home'; render(); window.scrollTo(0, 0); } },
+    'swap-out'(d) {
+      const S = G.state(); if (S.phase !== 'prep') return;
+      const out = G.player(d.out), inp = G.player(d.in);
+      S.squad = S.squad.map(id => id === d.out ? d.in : id);
+      S.xi = S.xi.map(id => id === d.out ? null : id);
+      if (S.captain === d.out) S.captain = null;
+      if (S.vice === d.out) S.vice = null;
+      ui.modal = null; G.save(); render();
+      toast(`${inp.name}を招集し、${out.name}を外した`);
+    },
     'press-start'() { G.startPress(); render(); },
     consult(d) { const r = LF.resolveConsult(+d.i, d.v); render(); if (r) toast(r); },
     leave(d) { const r = LF.resolveLeave(d.v); if (ui.modal && ui.modal.type === 'leave') ui.modal = null; render(); if (r) toast(r); },

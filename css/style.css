@@ -321,6 +321,8 @@ td.nm:hover { text-decoration: underline; }
 main.with-bar { padding-bottom: 110px; }
 .nextmatch { border-left: 4px solid var(--hi); }
 
+.swaprow.same { border-left: 3px solid var(--ai); }
+
 /* ---------- 試合 ---------- */
 .live { max-width: 980px; }
 .board { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; align-items: center; background: var(--ink); color: var(--panel); border-radius: 10px; padding: 14px 16px; }
