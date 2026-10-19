@@ -384,7 +384,7 @@
         <h2>${prep ? (ev.kind === 'tour' ? '大会登録メンバー（選考中）' : '招集メンバー（選考中）') : '招集メンバー'}<span class="sub num">${ps.length}/${G.squadMax()} ・ ${counts}${G.isOly() ? ` ・ U-23 ${ps.filter(G.olyEligible).length} ・ OA ${ps.filter(p => !G.olyEligible(p)).length}/3` : ''}</span></h2>
         <p class="small muted" style="margin:-6px 0 10px">好調 ${hot}人 ・ 不調 ${cold}人 ・ 負傷 ${hurt}人</p>
         ${issues.length ? `<ul class="issues">${issues.map(i => `<li>${esc(i)}</li>`).join('')}</ul>` : ''}
-        ${prep ? `<div class="row" style="margin-bottom:12px"><button class="btn sm" data-act="auto-squad">自動選考</button><button class="btn sm" data-act="drop-injured">間に合わない負傷者を外す</button><button class="btn sm" data-act="clear-squad">全員外す</button><button class="btn sm" data-act="tab" data-v="players">選手一覧から選ぶ</button></div>` : ''}
+        ${prep ? `<div class="row" style="margin-bottom:12px"><button class="btn sm" data-act="auto-squad">${ps.length ? '残りを自動選考' : '自動選考'}</button><button class="btn sm" data-act="drop-injured">間に合わない負傷者を外す</button><button class="btn sm" data-act="clear-squad">全員外す</button><button class="btn sm" data-act="tab" data-v="players">選手一覧から選ぶ</button></div>` : ''}
         <div class="squad-groups">${groups.map(([g, l]) => { const list = ps.filter(p => E.POS_GROUP[p.pos] === g).sort((a, b) => b.ovr - a.ovr); return `<div class="sg"><h3><span>${l}</span><span class="num">${list.length}</span></h3><div class="plist">${list.map(item).join('') || '<span class="muted small">未選出</span>'}</div></div>`; }).join('')}</div>
       </section>
       <div class="grid" style="align-content:start">
@@ -1084,7 +1084,17 @@
       }
       G.save(); render();
     },
-    'auto-squad'() { const S = G.state(); S.squad = G.autoSquad(); S.xi = G.autoPick(S.squad, S.formation); G.save(); render(); toast(`${S.squad.length}人を自動選考した`); },
+    'auto-squad'() {
+      const S = G.state();
+      // 選んでおいたメンバーは残し、空いた枠だけを自動で埋める
+      const keep = S.squad.filter(id => { const p = G.player(id); return p && G.callable(p) && G.eligibleNow(p); });
+      const dropped = S.squad.length - keep.length;
+      if (keep.length >= G.squadMax()) { toast('招集枠はすでに埋まっている'); return; }
+      S.squad = G.autoSquad(G.squadMax(), keep);
+      S.xi = G.autoPick(S.squad, S.formation); G.save(); render();
+      const added = S.squad.length - keep.length;
+      toast(keep.length ? `選んだ${keep.length}人はそのままに、${added}人を自動で追加した${dropped ? `（間に合わない・対象外の${dropped}人は外した）` : ''}` : `${S.squad.length}人を自動選考した`);
+    },
     'drop-injured'() { const S = G.state(); S.squad = S.squad.filter(id => G.callable(G.player(id))); G.save(); render(); toast('間に合わない負傷者を外した（軽傷の選手は残している）'); },
     'clear-squad'() { const S = G.state(); S.squad = []; S.xi = []; G.save(); render(); },
     'staff-swap'(d) {

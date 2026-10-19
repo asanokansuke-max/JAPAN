@@ -779,8 +779,8 @@
   }
 
   // 自動選考：ポジション枠ごとに能力・調子の高い順
-  function autoSquad(n) {
-    if (isOly() || isE1()) return root.SBStaff ? root.SBStaff.recommend(squadMax()) : [];
+  function autoSquad(n, keep) {
+    if (root.SBStaff) return root.SBStaff.recommend(n || squadMax(), keep);
     n = n || 26;
     const ps = visible().filter(available);
     const score = p => p.ovr + p.form * 0.6 + (p.status === 'bench' ? -1.5 : 0) + p.chem * 0.01;

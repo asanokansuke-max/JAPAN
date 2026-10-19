@@ -29,29 +29,45 @@
     return v;
   }
 
-  function recommend(n) {
-    if (G.isOly()) return recommendOly();
+  // keep：先に決めておいたメンバー。残したまま空いた枠だけを埋める
+  function recommend(n, keep) {
+    if (G.isOly()) return recommendOly(keep);
     const ps = G.visible().filter(p => G.callable(p) && G.eligibleNow(p));
     const quota = n >= 26 ? [[['GK'], 3], [['CB'], 5], [['LB', 'RB'], 4], [['DM', 'CM'], 5], [['AM', 'LW', 'RW'], 6], [['ST'], 3]]
       : [[['GK'], 3], [['CB'], 4], [['LB', 'RB'], 3], [['DM', 'CM'], 4], [['AM', 'LW', 'RW'], 5], [['ST'], 3]];
-    const pick = new Set();
-    for (const [poss, q] of quota) ps.filter(p => poss.includes(p.pos)).sort((a, b) => value(b) - value(a)).slice(0, q).forEach(p => pick.add(p.id));
+    const pick = new Set((keep || []).filter(id => { const p = G.player(id); return p && !p.retired; }).slice(0, n));
+    const has = poss => [...pick].filter(id => poss.includes(G.player(id).pos)).length;
+    for (const [poss, q] of quota) {
+      const need = Math.max(0, q - has(poss));
+      ps.filter(p => poss.includes(p.pos) && !pick.has(p.id)).sort((a, b) => value(b) - value(a)).slice(0, need).forEach(p => { if (pick.size < n) pick.add(p.id); });
+    }
     ps.filter(p => p.pos !== 'GK' && !pick.has(p.id)).sort((a, b) => value(b) - value(a)).forEach(p => { if (pick.size < n) pick.add(p.id); });
     return [...pick].slice(0, n);
   }
 
   // 五輪：U-23から15人、オーバーエイジ3人
-  function recommendOly() {
+  function recommendOly(keep) {
     const ps = G.visible().filter(G.callable);
     const u = ps.filter(G.olyEligible);
-    const quota = [[['GK'], 2], [['CB'], 3], [['LB', 'RB'], 2], [['DM', 'CM'], 3], [['AM', 'LW', 'RW'], 3], [['ST'], 2]];
     const pick = new Set();
-    for (const [poss, q] of quota) u.filter(p => poss.includes(p.pos)).sort((a, b) => value(b) - value(a)).slice(0, q).forEach(p => pick.add(p.id));
+    // 決めておいたメンバーは残す（オーバーエイジは3人まで）
+    let oaKept = 0;
+    (keep || []).map(G.player).filter(p => p && !p.retired).forEach(p => {
+      if (pick.size >= 18) return;
+      if (!G.olyEligible(p)) { if (oaKept >= 3) return; oaKept++; }
+      pick.add(p.id);
+    });
+    const quota = [[['GK'], 2], [['CB'], 3], [['LB', 'RB'], 2], [['DM', 'CM'], 3], [['AM', 'LW', 'RW'], 3], [['ST'], 2]];
+    const has = poss => [...pick].filter(id => poss.includes(G.player(id).pos)).length;
+    for (const [poss, q] of quota) {
+      const need = Math.max(0, q - has(poss));
+      u.filter(p => poss.includes(p.pos) && !pick.has(p.id)).sort((a, b) => value(b) - value(a)).slice(0, need).forEach(p => { if (pick.size < 18) pick.add(p.id); });
+    }
     // U-23のGKが足りなければオーバーエイジ枠で補う
-    let oa = 3;
+    let oa = 3 - oaKept;
     const gkN = [...pick].filter(id => G.player(id).pos === 'GK').length;
-    ps.filter(p => !G.olyEligible(p) && p.pos === 'GK').sort((a, b) => value(b) - value(a)).slice(0, Math.max(0, 2 - gkN)).forEach(p => { pick.add(p.id); oa--; });
-    ps.filter(p => !G.olyEligible(p) && p.pos !== 'GK').sort((a, b) => value(b) - value(a)).slice(0, oa).forEach(p => pick.add(p.id));
+    ps.filter(p => !G.olyEligible(p) && p.pos === 'GK' && !pick.has(p.id)).sort((a, b) => value(b) - value(a)).slice(0, Math.max(0, Math.min(oa, 2 - gkN))).forEach(p => { if (pick.size < 18) { pick.add(p.id); oa--; } });
+    ps.filter(p => !G.olyEligible(p) && p.pos !== 'GK' && !pick.has(p.id)).sort((a, b) => value(b) - value(a)).slice(0, Math.max(0, oa)).forEach(p => { if (pick.size < 18) pick.add(p.id); });
     u.filter(p => p.pos !== 'GK' && !pick.has(p.id)).sort((a, b) => value(b) - value(a)).forEach(p => { if (pick.size < 18) pick.add(p.id); });
     return [...pick];
   }
