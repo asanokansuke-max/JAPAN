@@ -192,6 +192,23 @@ var Workflow = (function () {
     return 'closed';
   }
 
+  /** 各ステップの状態だけを求める（一覧の押印欄用。担当者名は引かないので軽い） */
+  function stepStates_(req) {
+    return req.route.map(function (step, idx) {
+      var state = 'todo';
+      if (step.type === STEP_TYPE.APPROVAL) {
+        if (step.approvedBy) state = 'done';
+        else if (req.status === STATUS.PENDING && req.currentStep === idx) state = 'current';
+        else if (req.status === STATUS.REJECTED && req.currentStep === idx) state = 'rejected';
+        else if (req.status === STATUS.WITHDRAWN && req.currentStep === idx) state = 'withdrawn';
+      } else {
+        if (req.status === STATUS.RECEIVED) state = 'done';
+        else if (req.status === STATUS.SUBMITTED) state = 'current';
+      }
+      return { name: step.name, state: state };
+    });
+  }
+
   /** 進捗（画面のステップ表示用） */
   function progress(req) {
     var out = [{ name: '申請', state: 'done', by: req.applicantName, at: req.submittedAt }];
@@ -387,7 +404,8 @@ var Workflow = (function () {
       id: req.id, typeId: req.typeId, typeName: req.typeName, applicantEmail: req.applicantEmail, applicantName: req.applicantName,
       submittedAt: req.submittedAt, status: req.status, statusLabel: req.statusLabel, summary: req.summary,
       currentStep: req.currentStep, currentStepName: req.route[req.currentStep] ? req.route[req.currentStep].name : '',
-      firstApproverName: req.firstApproverName, updatedAt: req.updatedAt, group: statusGroup(req)
+      firstApproverName: req.firstApproverName, updatedAt: req.updatedAt, group: statusGroup(req),
+      steps: stepStates_(req)
     };
   }
 

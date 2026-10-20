@@ -21,7 +21,8 @@ function apiBootstrap() {
     var receipt = Workflow.listForReceipt(email);
     var canReceive = Users.hasAnyRole(email, [ROLE.GENERAL_AFFAIRS, ROLE.PRESIDENT]) || isAdmin;
     return {
-      user: { email: email, name: Users.displayName(email), roles: roles, isAdmin: isAdmin },
+      user: { email: email, name: Users.displayName(email), roles: roles, isAdmin: isAdmin,
+        dept: (Users.findUser(email) || {}).dept || '' },
       mode: isTestMode_() ? MODE.TEST : MODE.PROD,
       testNotifyEmail: getSetting_('TEST_NOTIFY_EMAIL', ''),
       types: RequestTypes.listEnabled(),
