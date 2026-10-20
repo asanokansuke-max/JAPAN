@@ -115,3 +115,9 @@ tools/sim-test.js   バランス検証と通しプレイテスト（node tools/s
 ```
 
 選手の能力値・所属はゲーム用の推定であり、実在選手の公式評価ではありません。
+
+---
+
+## 統合申請アプリ（別プロジェクト）
+
+`shinsei-app/` には、早朝残業申請・代休申請・除雪申請を Google Apps Script で運用する社内向け「統合申請アプリ」が入っています。セットアップ手順は [shinsei-app/README.md](shinsei-app/README.md) を参照してください。

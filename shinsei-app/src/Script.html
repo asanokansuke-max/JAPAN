@@ -1,0 +1,609 @@
+<script>
+(function () {
+  'use strict';
+
+  // ------------------------------------------------------------ 共通
+  var state = { boot: null, formDef: null, formDraft: {}, adminTab: 'settings', adminData: {} };
+  var $ = function (sel, root) { return (root || document).querySelector(sel); };
+  var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+  var app = $('#app');
+
+  function esc(s) {
+    return String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  /** google.script.run を Promise 化。サーバーは {ok, data|error} を返す */
+  function call(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      var runner = google.script.run
+        .withSuccessHandler(function (res) {
+          if (res && res.ok === false) reject(new Error(res.error || 'エラーが発生しました'));
+          else resolve(res ? res.data : null);
+        })
+        .withFailureHandler(function (err) { reject(err instanceof Error ? err : new Error(String(err && err.message || err))); });
+      runner[fn].apply(runner, args);
+    });
+  }
+
+  var toastTimer;
+  function toast(msg, isError) {
+    var t = $('#toast');
+    t.textContent = msg; t.className = 'toast' + (isError ? ' error' : ''); t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.hidden = true; }, isError ? 5000 : 3000);
+  }
+
+  function modal(title, bodyHtml, actions) {
+    var m = $('#modal');
+    $('#modal-title').textContent = title;
+    $('#modal-body').innerHTML = bodyHtml;
+    var box = $('#modal-actions');
+    box.innerHTML = '';
+    actions.forEach(function (a) {
+      var b = document.createElement('button');
+      b.className = 'btn ' + (a.cls || '');
+      b.textContent = a.label;
+      b.onclick = function () { var r = a.onClick ? a.onClick(b) : true; if (r !== false) closeModal(); };
+      box.appendChild(b);
+    });
+    m.hidden = false;
+    var first = $('#modal-body textarea, #modal-body input');
+    if (first) setTimeout(function () { first.focus(); }, 50);
+  }
+  function closeModal() { $('#modal').hidden = true; }
+  $('#modal').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
+
+  function loading(msg) {
+    app.innerHTML = '<div class="loading"><div class="spinner"></div><p>' + esc(msg || '読み込み中…') + '</p></div>';
+  }
+
+  function fmtDate(s) {
+    if (!s) return '';
+    return String(s).replace(/:\d\d$/, '');
+  }
+
+  function statusBadge(r) {
+    return '<span class="status ' + esc(r.status) + '">' + esc(r.statusLabel) + '</span>';
+  }
+
+  function itemHtml(r, extra) {
+    return '<a class="item" href="#detail/' + encodeURIComponent(r.id) + '">' +
+      '<div class="main"><div class="title">' + esc(r.typeName) + ' <span class="pill">' + esc(r.id) + '</span></div>' +
+      '<div class="sub">' + esc(r.applicantName) + ' ・ ' + esc(r.summary) + '</div>' + (extra || '') + '</div>' +
+      '<div class="meta">' + statusBadge(r) + '<br>' + esc(fmtDate(r.submittedAt)) + '</div></a>';
+  }
+
+  function listHtml(items, emptyText, extraFn) {
+    if (!items || !items.length) return '<div class="empty">' + esc(emptyText || '該当する申請はありません') + '</div>';
+    return '<div class="list">' + items.map(function (r) { return itemHtml(r, extraFn ? extraFn(r) : ''); }).join('') + '</div>';
+  }
+
+  // ------------------------------------------------------------ ルーティング
+  function route() {
+    var hash = location.hash.replace(/^#/, '') || 'home';
+    var parts = hash.split('/');
+    return { view: parts[0], arg: parts.slice(1).map(decodeURIComponent).join('/') };
+  }
+  function go(hash) { if (location.hash === '#' + hash) render(); else location.hash = hash; }
+  window.addEventListener('hashchange', render);
+
+  function setActiveNav(view) {
+    $$('[data-nav]').forEach(function (a) { a.classList.toggle('active', a.getAttribute('data-nav') === view); });
+  }
+
+  function render() {
+    if (!state.boot) return;
+    var r = route();
+    setActiveNav(r.view === 'new' || r.view === 'detail' ? '' : r.view);
+    window.scrollTo(0, 0);
+    switch (r.view) {
+      case 'home': return viewHome();
+      case 'new': return viewNew(r.arg);
+      case 'mine': return viewMine();
+      case 'approvals': return viewApprovals();
+      case 'receipts': return viewReceipts();
+      case 'detail': return viewDetail(r.arg);
+      case 'admin': return viewAdmin();
+      default: return viewHome();
+    }
+  }
+
+  // ------------------------------------------------------------ 起動
+  function applyBoot(boot) {
+    state.boot = boot;
+    var u = boot.user;
+    $('#user-box').innerHTML = '<b>' + esc(u.name) + '</b>' + esc(u.email) + '<br><span class="small">' + esc(u.roles.join('・')) + '</span>';
+    ['approver', 'receiver', 'admin'].forEach(function (flag) {
+      $$('[data-flag="' + flag + '"]').forEach(function (el) { el.hidden = !boot.flags[flag]; });
+    });
+    setBadge('#badge-approvals', boot.counts.pendingApprovals); setBadge('#badge-receipts', boot.counts.pendingReceipts); setBadge('#badge-mine', boot.counts.myOpen);
+    $('#dot-approvals').hidden = !boot.counts.pendingApprovals; $('#dot-receipts').hidden = !boot.counts.pendingReceipts;
+    var banner = $('#mode-banner');
+    if (boot.mode === 'TEST') { banner.hidden = false; banner.textContent = '🧪 テスト運用モード: すべての通知は ' + boot.testNotifyEmail + ' に集約され、データは _TEST シートに保存されます'; }
+    else banner.hidden = true;
+  }
+  function setBadge(sel, n) { var b = $(sel); if (!b) return; b.hidden = !n; b.textContent = n; }
+
+  function refreshBoot() { return call('apiBootstrap').then(applyBoot); }
+
+  function init() {
+    call('apiBootstrap').then(function (boot) {
+      applyBoot(boot);
+      // Chat 通知のリンク（?page=detail&id=...）から開かれた場合は詳細へ
+      var initialPage = app.getAttribute('data-initial-page'), initialId = app.getAttribute('data-initial-id');
+      if (initialPage === 'detail' && initialId && !location.hash) {
+        location.hash = 'detail/' + encodeURIComponent(initialId);
+      }
+      render();
+    }).catch(function (e) {
+      app.innerHTML = '<div class="card"><h2>読み込みに失敗しました</h2><p class="error-box">' + esc(e.message) + '</p>' +
+        '<p class="muted small">管理者がセットアップ（setup 関数の実行）を済ませているか、Google Workspace のアカウントでログインしているかを確認してください。</p>' +
+        '<button class="btn primary" onclick="location.reload()">再読み込み</button></div>';
+    });
+  }
+
+  // ------------------------------------------------------------ ホーム
+  function viewHome() {
+    var b = state.boot;
+    var types = b.types.map(function (t) {
+      return '<a class="type-card" href="#new/' + encodeURIComponent(t.id) + '"><span class="ico">' + esc(t.icon) + '</span><div><b>' + esc(t.name) + '</b><span>' + esc(t.note || '') + '</span></div></a>';
+    }).join('');
+    app.innerHTML =
+      '<h1>こんにちは、' + esc(b.user.name) + ' さん</h1>' +
+      '<div class="card"><h2>新しい申請</h2><p class="muted small">申請の種類を選んでください。</p><div class="grid">' + (types || '<div class="empty">利用できる申請種別がありません</div>') + '</div></div>' +
+      '<div class="card"><h2>状況</h2><div class="stats">' +
+      '<a class="stat" href="#mine"><b>' + b.counts.myOpen + '</b><span>進行中の自分の申請</span></a>' +
+      (b.flags.approver ? '<a class="stat" href="#approvals"><b>' + b.counts.pendingApprovals + '</b><span>承認待ち（自分宛て）</span></a>' : '') +
+      (b.flags.receiver ? '<a class="stat" href="#receipts"><b>' + b.counts.pendingReceipts + '</b><span>受理待ち</span></a>' : '') +
+      '</div></div>' +
+      '<div class="card"><div class="row space-between"><h2>最近の申請</h2><a href="#mine" class="small">すべて見る</a></div><div id="home-recent"><div class="loading"><div class="spinner"></div></div></div></div>';
+    call('apiMyRequests').then(function (list) {
+      $('#home-recent').innerHTML = listHtml(list.slice(0, 5), 'まだ申請はありません');
+    }).catch(function (e) { $('#home-recent').innerHTML = '<div class="error-box">' + esc(e.message) + '</div>'; });
+  }
+
+  // ------------------------------------------------------------ 申請フォーム
+  function viewNew(typeId) {
+    if (!typeId) return go('home');
+    loading('申請フォームを準備しています…');
+    call('apiFormDefinition', typeId).then(function (def) {
+      state.formDef = def;
+      state.formDraft = {};
+      renderForm(def);
+    }).catch(function (e) {
+      app.innerHTML = '<a class="back" href="#home">← ホームへ戻る</a><div class="card"><div class="error-box">' + esc(e.message) + '</div></div>';
+    });
+  }
+
+  function fieldHtml(f) {
+    var id = 'f_' + f.key;
+    var req = f.required ? '<span class="req">※必須</span>' : '';
+    var label = '<label for="' + id + '">' + esc(f.label) + req + '</label>';
+    var hint = f.hint ? '<div class="hint">' + esc(f.hint) + '</div>' : '';
+    var cls = 'field' + (f.width === 'half' ? ' half' : ' full');
+    var val = f.default || '';
+    var input = '';
+    switch (f.type) {
+      case 'static': input = '<div class="static">' + esc(val) + '</div>'; break;
+      case 'textarea': input = '<textarea id="' + id + '" name="' + esc(f.key) + '" placeholder="' + esc(f.placeholder || '') + '">' + esc(val) + '</textarea>'; break;
+      case 'date': input = '<input type="date" id="' + id + '" name="' + esc(f.key) + '" value="' + esc(val) + '">'; break;
+      case 'time': input = '<input type="time" id="' + id + '" name="' + esc(f.key) + '" value="' + esc(val) + '" step="' + ((f.step || 5) * 60) + '">'; break;
+      case 'number': input = '<input type="number" id="' + id + '" name="' + esc(f.key) + '" value="' + esc(val) + '">'; break;
+      case 'select':
+        input = '<select id="' + id + '" name="' + esc(f.key) + '">' + (f.required ? '' : '<option value="">選択してください</option>') +
+          (f.options || []).map(function (o) { return '<option value="' + esc(o.value) + '"' + (String(o.value) === String(val) ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select>';
+        break;
+      case 'radio':
+        input = '<div class="radio-group">' + (f.options || []).map(function (o, i) {
+          var checked = String(o.value) === String(val);
+          return '<label class="' + (checked ? 'checked' : '') + '"><input type="radio" name="' + esc(f.key) + '" value="' + esc(o.value) + '"' + (checked ? ' checked' : '') + '> ' + esc(o.label) + '</label>';
+        }).join('') + '</div>';
+        break;
+      default: input = '<input type="text" id="' + id + '" name="' + esc(f.key) + '" value="' + esc(val) + '" placeholder="' + esc(f.placeholder || '') + '">';
+    }
+    return '<div class="' + cls + '">' + label + input + hint + '</div>';
+  }
+
+  function renderForm(def) {
+    var fields = def.fields;
+    var html = '';
+    var i = 0;
+    while (i < fields.length) {
+      var f = fields[i];
+      if (f.type === 'group') {
+        var inner = '';
+        var j = i + 1;
+        while (j < fields.length && fields[j].group === f.key) { inner += fieldHtml(fields[j]); j++; }
+        html += '<div class="group-title">' + esc(f.label) + '</div><div class="group-box">' + inner + '</div>';
+        i = j;
+      } else { html += fieldHtml(f); i++; }
+    }
+    var selHtml = (def.selections || []).map(function (s) {
+      var opts = s.candidates.map(function (c) { return '<option value="' + esc(c.email) + '">' + esc(c.name) + '</option>'; }).join('');
+      return '<div class="field full"><label for="sel_' + s.stepIndex + '">' + esc(s.stepName) + 'を行う承認者<span class="req">※必須</span></label>' +
+        '<select id="sel_' + s.stepIndex + '" data-sel="' + s.stepIndex + '"><option value="">選択してください</option>' + opts + '</select>' +
+        (s.candidates.length ? '' : '<div class="hint" style="color:var(--ng)">候補者が登録されていません。管理者に「役割マスター」への登録を依頼してください。</div>') + '</div>';
+    }).join('');
+
+    app.innerHTML =
+      '<a class="back" href="#home">← 申請の種類を選び直す</a>' +
+      '<div class="card"><h1>' + esc(def.icon || '') + ' ' + esc(def.formTitle) + '</h1>' +
+      '<p class="muted small">申請者: <b>' + esc(def.applicant.name) + '</b>（' + esc(def.applicant.email) + '）</p>' +
+      (def.description ? '<div class="description">' + def.description + '</div>' : '') +
+      '<div id="form-errors"></div>' +
+      '<form id="req-form" novalidate><div class="form-grid">' + html + '<div class="group-title">承認者</div>' + selHtml + '</div>' +
+      '<div class="actions"><button type="submit" class="btn primary" id="submit-btn">この内容で申請する</button>' +
+      '<a class="btn ghost" href="#home">キャンセル</a></div></form></div>';
+
+    $$('.radio-group input', app).forEach(function (r) {
+      r.addEventListener('change', function () {
+        $$('label', r.closest('.radio-group')).forEach(function (l) { l.classList.toggle('checked', l.querySelector('input').checked); });
+      });
+    });
+    $('#req-form').addEventListener('submit', submitForm);
+  }
+
+  function collectForm() {
+    var values = {};
+    var form = $('#req-form');
+    state.formDef.fields.forEach(function (f) {
+      if (f.type === 'group' || f.type === 'static') return;
+      if (f.type === 'radio') {
+        var checked = form.querySelector('input[name="' + f.key + '"]:checked');
+        values[f.key] = checked ? checked.value : '';
+      } else {
+        var el = form.querySelector('[name="' + f.key + '"]');
+        values[f.key] = el ? el.value : '';
+      }
+    });
+    var selections = {};
+    $$('[data-sel]', form).forEach(function (s) { selections[s.getAttribute('data-sel')] = s.value; });
+    return { values: values, selections: selections };
+  }
+
+  function clientValidate(values, selections) {
+    var errors = [];
+    state.formDef.fields.forEach(function (f) {
+      if (f.required && f.type !== 'group' && f.type !== 'static' && !String(values[f.key] || '').trim()) errors.push('「' + f.label + '」は必須です。');
+    });
+    (state.formDef.selections || []).forEach(function (s) { if (!selections[String(s.stepIndex)]) errors.push('「' + s.stepName + '」を行う承認者を選択してください。'); });
+    return errors;
+  }
+
+  function submitForm(e) {
+    e.preventDefault();
+    var data = collectForm();
+    var errors = clientValidate(data.values, data.selections);
+    var box = $('#form-errors');
+    if (errors.length) { box.innerHTML = '<div class="error-box">' + esc(errors.join('\n')) + '</div>'; window.scrollTo(0, 0); return; }
+    box.innerHTML = '';
+    var summaryRows = state.formDef.fields.filter(function (f) { return f.type !== 'group' && data.values[f.key]; }).map(function (f) {
+      var v = data.values[f.key];
+      if (f.options) f.options.forEach(function (o) { if (String(o.value) === String(v)) v = o.label; });
+      return '<dt>' + esc(f.label) + '</dt><dd>' + esc(v) + '</dd>';
+    }).join('');
+    modal('この内容で申請しますか？', '<dl class="kv">' + summaryRows + '</dl>', [
+      { label: 'もどる' },
+      { label: '申請する', cls: 'primary', onClick: function (btn) {
+        btn.disabled = true; btn.textContent = '送信中…';
+        call('apiSubmitRequest', state.formDef.id, data.values, data.selections).then(function (res) {
+          closeModal();
+          toast('申請しました（' + res.id + '）');
+          refreshBoot();
+          go('detail/' + encodeURIComponent(res.id));
+        }).catch(function (err) {
+          closeModal();
+          box.innerHTML = '<div class="error-box">' + esc(err.message) + '</div>';
+          window.scrollTo(0, 0);
+        });
+        return false;
+      } }
+    ]);
+  }
+
+  // ------------------------------------------------------------ 自分の申請
+  function viewMine() {
+    loading();
+    call('apiMyRequests').then(function (list) {
+      var open = list.filter(function (r) { return r.group === 'open'; });
+      var closed = list.filter(function (r) { return r.group !== 'open'; });
+      app.innerHTML = '<h1>自分の申請</h1><div class="card">' +
+        tabsHtml('mine', [{ id: 'open', label: '進行中 (' + open.length + ')' }, { id: 'closed', label: '完了・却下 (' + closed.length + ')' }]) +
+        '<div data-pane="open">' + listHtml(open, '進行中の申請はありません') + '</div>' +
+        '<div data-pane="closed" hidden>' + listHtml(closed, '完了した申請はありません') + '</div></div>' +
+        '<a class="btn primary block" href="#home">＋ 新しい申請</a>';
+      bindTabs();
+    }).catch(showError);
+  }
+
+  function tabsHtml(name, tabs) {
+    return '<div class="tabs" data-tabs="' + name + '">' + tabs.map(function (t, i) {
+      return '<button type="button" data-tab="' + t.id + '" class="' + (i === 0 ? 'active' : '') + '">' + esc(t.label) + '</button>';
+    }).join('') + '</div>';
+  }
+  function bindTabs() {
+    $$('.tabs button', app).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var wrap = b.closest('.card') || app;
+        $$('.tabs button', wrap).forEach(function (x) { x.classList.toggle('active', x === b); });
+        $$('[data-pane]', wrap).forEach(function (p) { p.hidden = p.getAttribute('data-pane') !== b.getAttribute('data-tab'); });
+      });
+    });
+  }
+  function showError(e) { app.innerHTML = '<div class="card"><div class="error-box">' + esc(e.message) + '</div><a class="btn" href="#home">ホームへ</a></div>'; }
+
+  // ------------------------------------------------------------ 承認
+  function viewApprovals() {
+    loading();
+    call('apiApprovals').then(function (d) {
+      app.innerHTML = '<h1>承認</h1><div class="card">' +
+        tabsHtml('appr', [{ id: 'pending', label: '承認待ち (' + d.pending.length + ')' }, { id: 'done', label: '処理済み (' + d.done.length + ')' }]) +
+        '<div data-pane="pending">' + listHtml(d.pending, '承認待ちの案件はありません') + '</div>' +
+        '<div data-pane="done" hidden>' + listHtml(d.done, '処理済みの案件はありません', function (r) { return '<div class="small muted">自分の操作: ' + esc(r.myAction) + '</div>'; }) + '</div></div>';
+      bindTabs();
+    }).catch(showError);
+  }
+
+  // ------------------------------------------------------------ 受理
+  function viewReceipts() {
+    loading();
+    call('apiReceipts').then(function (d) {
+      app.innerHTML = '<h1>受理（総務課・社長）</h1>' +
+        '<div class="alert info">ここに表示される申請は上長・常務の承認が完了し提出されたものです。内容を確認し「受理」を記録してください（承認・却下の操作はありません）。</div>' +
+        '<div class="card">' +
+        tabsHtml('rcpt', [{ id: 'pending', label: '受理待ち (' + d.pending.length + ')' }, { id: 'done', label: '受理済み (' + d.done.length + ')' }]) +
+        '<div data-pane="pending">' + listHtml(d.pending, '受理待ちの申請はありません') + '</div>' +
+        '<div data-pane="done" hidden>' + listHtml(d.done, '受理済みの申請はありません') + '</div></div>';
+      bindTabs();
+    }).catch(showError);
+  }
+
+  // ------------------------------------------------------------ 詳細
+  function viewDetail(id) {
+    if (!id) return go('mine');
+    loading();
+    call('apiRequestDetail', id).then(renderDetail).catch(showError);
+  }
+
+  function renderDetail(d) {
+    var r = d.request;
+    var rows = d.rows.map(function (x) { return '<dt>' + esc(x.label) + '</dt><dd>' + esc(x.value) + '</dd>'; }).join('');
+    var icons = { done: '✓', current: '●', todo: '', rejected: '✕', withdrawn: '−' };
+    var steps = d.progress.map(function (s) {
+      var info = [];
+      if (s.by) info.push(s.by);
+      if (s.at) info.push(fmtDate(s.at));
+      if (s.state === 'current' && s.members && s.members.length) info.push('担当: ' + s.members.join('・'));
+      if (s.state === 'todo' && s.members && s.members.length) info.push('担当: ' + s.members.join('・'));
+      return '<div class="step ' + esc(s.state) + '"><div class="dotc">' + (icons[s.state] || '') + '</div><div><div class="sname">' + esc(s.name) +
+        (s.state === 'current' ? ' <span class="pill">現在</span>' : '') + '</div><div class="sinfo">' + esc(info.join(' ／ ')) + '</div></div></div>';
+    }).join('');
+    var history = d.history.length ? '<ul>' + d.history.map(function (h) {
+      return '<li><b>' + esc(h.action) + '</b> ' + esc(h.actorName) + (h.step ? ' <span class="pill">' + esc(h.step) + '</span>' : '') +
+        ' <span class="muted">' + esc(fmtDate(h.at)) + '</span>' + (h.comment ? '<br><span class="muted">' + esc(h.comment) + '</span>' : '') + '</li>';
+    }).join('') + '</ul>' : '<div class="muted small">履歴はありません</div>';
+
+    var actions = '';
+    if (d.can.approve) actions += '<button class="btn ok" id="btn-approve">✅ 承認する</button><button class="btn ng" id="btn-reject">❌ 却下する</button>';
+    if (d.can.receive) actions += '<button class="btn primary" id="btn-receive">📥 受理を記録する</button>';
+    if (d.can.withdraw) actions += '<button class="btn" id="btn-withdraw">↩️ 申請を取り下げる</button>';
+
+    app.innerHTML =
+      '<a class="back" href="javascript:history.back()">← 戻る</a>' +
+      '<div class="card"><div class="row space-between"><h1 style="margin:0">' + esc(r.typeName) + '</h1>' + statusBadge(r) + '</div>' +
+      '<p class="muted small">申請ID: ' + esc(r.id) + ' ／ 申請者: <b>' + esc(r.applicantName) + '</b> ／ 申請日時: ' + esc(fmtDate(r.submittedAt)) + '</p>' +
+      (d.rejectReason ? '<div class="alert warn"><b>却下理由:</b> ' + esc(d.rejectReason) + '</div>' : '') +
+      (actions ? '<div class="actions" style="margin-top:4px">' + actions + '</div>' : '') +
+      '</div>' +
+      '<div class="card"><h2>申請内容</h2><dl class="kv">' + rows + '</dl></div>' +
+      '<div class="card"><h2>承認の進捗</h2><div class="steps">' + steps + '</div></div>' +
+      '<div class="card"><h2>操作履歴</h2><div class="history">' + history + '</div></div>';
+
+    var id = r.id;
+    if (d.can.approve) {
+      $('#btn-approve').onclick = function () {
+        modal('承認しますか？', '<p>' + esc(r.applicantName) + ' さんの「' + esc(r.typeName) + '」を承認します。</p><label class="small muted">コメント（任意）</label><textarea id="m-comment"></textarea>', [
+          { label: 'もどる' },
+          { label: '承認する', cls: 'ok', onClick: function (btn) { return act(btn, 'apiApprove', id, $('#m-comment').value, '承認しました'); } }
+        ]);
+      };
+      $('#btn-reject').onclick = function () {
+        modal('却下しますか？', '<p>却下理由は申請者へ通知されます。</p><label class="small muted">却下理由<span class="req" style="color:var(--ng)">※必須</span></label><textarea id="m-reason"></textarea>', [
+          { label: 'もどる' },
+          { label: '却下する', cls: 'ng', onClick: function (btn) {
+            if (!$('#m-reason').value.trim()) { toast('却下理由を入力してください', true); return false; }
+            return act(btn, 'apiReject', id, $('#m-reason').value, '却下しました');
+          } }
+        ]);
+      };
+    }
+    if (d.can.receive) {
+      $('#btn-receive').onclick = function () {
+        modal('受理を記録しますか？', '<p>この申請を受理したことを記録します。申請者へ通知されます。</p><label class="small muted">メモ（任意）</label><textarea id="m-comment"></textarea>', [
+          { label: 'もどる' },
+          { label: '受理する', cls: 'primary', onClick: function (btn) { return act(btn, 'apiReceive', id, $('#m-comment').value, '受理を記録しました'); } }
+        ]);
+      };
+    }
+    if (d.can.withdraw) {
+      $('#btn-withdraw').onclick = function () {
+        modal('申請を取り下げますか？', '<p>取り下げた申請は元に戻せません。必要な場合は再度申請してください。</p>', [
+          { label: 'もどる' },
+          { label: '取り下げる', cls: 'ng', onClick: function (btn) { return act(btn, 'apiWithdraw', id, undefined, '取り下げました'); } }
+        ]);
+      };
+    }
+  }
+
+  function act(btn, fn, id, arg, okMsg) {
+    btn.disabled = true; btn.textContent = '処理中…';
+    var p = arg === undefined ? call(fn, id) : call(fn, id, arg);
+    p.then(function (detail) { closeModal(); toast(okMsg); refreshBoot(); renderDetail(detail); })
+     .catch(function (e) { closeModal(); toast(e.message, true); viewDetail(id); });
+    return false;
+  }
+
+  // ------------------------------------------------------------ 管理画面
+  var ADMIN_TABS = [
+    { id: 'settings', label: '設定・運用モード' },
+    { id: 'roles', label: '役割マスター', sheet: '役割マスター' },
+    { id: 'users', label: '利用者マスター', sheet: '利用者マスター' },
+    { id: 'routes', label: '承認経路', sheet: '承認経路' },
+    { id: 'types', label: '申請種別', sheet: '申請種別マスター' },
+    { id: 'descriptions', label: '説明文（注意事項）' },
+    { id: 'chat', label: 'Chat通知先', sheet: 'Chat通知先' },
+    { id: 'requests', label: '全申請' }
+  ];
+
+  function viewAdmin() {
+    loading();
+    call('apiAdminOverview').then(function (ov) {
+      state.adminData.overview = ov;
+      app.innerHTML = '<h1>管理</h1>' +
+        '<div class="card compact row space-between"><div class="small">運用モード: <b>' + (ov.mode === 'TEST' ? '🧪 テスト運用' : '🟢 本番運用') + '</b> ／ 申請件数（現在のモード）: ' + ov.counts.requests + ' ／ 利用者: ' + ov.counts.users +
+        (ov.chatConfigured ? ' ／ Chat連携: 設定済み' : ' ／ Chat連携: <span style="color:var(--warn)">未設定（メール通知にフォールバック）</span>') + '</div>' +
+        '<div class="row"><a class="btn sm" target="_blank" href="' + esc(ov.spreadsheetUrl) + '">スプレッドシートを開く</a></div></div>' +
+        '<div class="card">' + tabsHtml('admin', ADMIN_TABS) + '<div id="admin-pane"></div></div>';
+      $$('.tabs button', app).forEach(function (b) {
+        b.addEventListener('click', function () {
+          $$('.tabs button', app).forEach(function (x) { x.classList.toggle('active', x === b); });
+          state.adminTab = b.getAttribute('data-tab');
+          renderAdminTab();
+        });
+        if (b.getAttribute('data-tab') === state.adminTab) b.classList.add('active'); else b.classList.remove('active');
+      });
+      renderAdminTab();
+    }).catch(showError);
+  }
+
+  function renderAdminTab() {
+    var pane = $('#admin-pane');
+    var tab = ADMIN_TABS.filter(function (t) { return t.id === state.adminTab; })[0] || ADMIN_TABS[0];
+    pane.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    if (tab.id === 'settings') return renderSettings(pane);
+    if (tab.id === 'descriptions') return renderDescriptions(pane);
+    if (tab.id === 'requests') return renderAllRequests(pane);
+    if (tab.sheet) return renderSheetEditor(pane, tab.sheet);
+  }
+
+  function renderSettings(pane) {
+    var ov = state.adminData.overview;
+    var rows = ov.settings.map(function (s) {
+      var input;
+      if (s.key === 'MODE') input = '<select data-key="MODE"><option value="TEST"' + (s.value === 'TEST' ? ' selected' : '') + '>TEST（テスト運用）</option><option value="PROD"' + (s.value === 'PROD' ? ' selected' : '') + '>PROD（本番運用）</option></select>';
+      else if (/^(NOTIFY_CHAT_DM|NOTIFY_EMAIL_FALLBACK|ALLOW_WITHDRAW|NOTIFY_DEPUTY_ALWAYS)$/.test(s.key)) input = '<select data-key="' + s.key + '"><option value="TRUE"' + (String(s.value).toUpperCase() === 'TRUE' ? ' selected' : '') + '>TRUE（有効）</option><option value="FALSE"' + (String(s.value).toUpperCase() !== 'TRUE' ? ' selected' : '') + '>FALSE（無効）</option></select>';
+      else if (s.key === 'RECEIPT_RULE') input = '<select data-key="RECEIPT_RULE"><option value="ANY"' + (s.value === 'ANY' ? ' selected' : '') + '>ANY（1人が受理すれば完了）</option><option value="ALL"' + (s.value === 'ALL' ? ' selected' : '') + '>ALL（全員の受理で完了）</option></select>';
+      else input = '<input type="text" data-key="' + s.key + '" value="' + esc(s.value) + '">';
+      return '<tr><td>' + esc(s.key) + '</td><td>' + input + '<div class="hint small muted">' + esc(s.description) + '</div></td></tr>';
+    }).join('');
+    pane.innerHTML =
+      '<div class="alert warn"><b>本番移行の手順:</b> 役割マスターに本番の担当者（環境=本番）を登録 → 通知テストで確認 → MODE を PROD に変更。テスト中のデータ（_TEST シート）は本番データと混ざりません。</div>' +
+      (ov.webAppUrl ? '<p class="small muted">現在の Web アプリ URL: <code>' + esc(ov.webAppUrl) + '</code>（APP_URL が空ならこの URL を使います）</p>' : '') +
+      '<table class="settings-table" style="width:100%">' + rows + '</table>' +
+      '<div class="actions"><button class="btn primary" id="save-settings">設定を保存</button>' +
+      '<button class="btn" id="test-notify">自分宛てに通知テストを送る</button></div><div id="settings-msg"></div>';
+    $('#save-settings').onclick = function () {
+      var settings = {};
+      $$('[data-key]', pane).forEach(function (el) { settings[el.getAttribute('data-key')] = el.value; });
+      this.disabled = true;
+      call('apiAdminSaveSettings', settings).then(function (ov2) {
+        state.adminData.overview = ov2; toast('設定を保存しました'); refreshBoot().then(viewAdmin);
+      }).catch(function (e) { toast(e.message, true); $('#save-settings').disabled = false; });
+    };
+    $('#test-notify').onclick = function () {
+      var b = this; b.disabled = true; b.textContent = '送信中…';
+      call('apiAdminSendTestNotification', '').then(function (r) { toast('通知テストを送信しました → ' + r.to); })
+        .catch(function (e) { toast(e.message, true); })
+        .then(function () { b.disabled = false; b.textContent = '自分宛てに通知テストを送る'; });
+    };
+  }
+
+  function renderSheetEditor(pane, sheetName) {
+    call('apiAdminGetSheet', sheetName).then(function (d) {
+      state.adminData.sheet = d;
+      var help = {
+        '役割マスター': '同じ人に複数の役割を付けられます。「環境」をテストにした行はテスト運用時のみ、本番にした行は本番運用時のみ有効です（共通は両方）。テスト時は同じメールアドレスを全役割に登録できます。',
+        '利用者マスター': '初回アクセスした人は自動で追加されます。氏名・部署を整えてください。',
+        '承認経路': '申請種別ID「*」が既定の経路です。種別ごとに別の経路が必要なときは、その種別IDの行を追加します。「ステップ種類=受理」は承認ではなく提出先（総務課・社長）です。3段階以上の承認は承認ステップの行を増やすだけで対応できます。',
+        '申請種別マスター': '有効=FALSE にすると申請画面に表示されません。新しい種別はプログラム側（RequestTypes.gs）に定義を追加したうえで行を追加します。',
+        'Chat通知先': '利用者が Chat でこのアプリに話しかけると自動登録されます。空欄の人には DM を送れないため、メール等にフォールバックします。'
+      }[sheetName] || '';
+      var thead = '<tr>' + d.headers.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '<th></th></tr>';
+      function rowHtml(row) {
+        return '<tr>' + d.headers.map(function (h, i) {
+          var hint = d.hints[h];
+          var v = row[i] === undefined ? '' : row[i];
+          if (hint && hint.options) {
+            var found = hint.options.indexOf(String(v)) >= 0;
+            return '<td><select>' + (found ? '' : '<option value="' + esc(v) + '" selected>' + esc(v || '（未設定）') + '</option>') +
+              hint.options.map(function (o) { return '<option value="' + esc(o) + '"' + (String(o) === String(v) ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select></td>';
+          }
+          return '<td><input type="text" value="' + esc(v) + '"></td>';
+        }).join('') + '<td class="ctl"><button type="button" class="btn sm del">削除</button></td></tr>';
+      }
+      pane.innerHTML = (help ? '<div class="alert info">' + esc(help) + '</div>' : '') +
+        '<div class="table-wrap"><table class="grid-table"><thead>' + thead + '</thead><tbody>' + d.rows.map(rowHtml).join('') + '</tbody></table></div>' +
+        '<div class="actions"><button class="btn" id="add-row">＋ 行を追加</button><button class="btn primary" id="save-sheet">保存</button></div>';
+      var tbody = $('tbody', pane);
+      tbody.addEventListener('click', function (e) { if (e.target.classList.contains('del')) e.target.closest('tr').remove(); });
+      $('#add-row').onclick = function () { tbody.insertAdjacentHTML('beforeend', rowHtml([])); };
+      $('#save-sheet').onclick = function () {
+        var rows = $$('tr', tbody).map(function (tr) { return $$('td', tr).slice(0, d.headers.length).map(function (td) { var el = td.querySelector('input,select'); return el ? el.value : ''; }); });
+        var b = this; b.disabled = true;
+        call('apiAdminSaveSheet', sheetName, rows).then(function () { toast('保存しました'); refreshBoot(); renderSheetEditor(pane, sheetName); })
+          .catch(function (e) { toast(e.message, true); b.disabled = false; });
+      };
+    }).catch(function (e) { pane.innerHTML = '<div class="error-box">' + esc(e.message) + '</div>'; });
+  }
+
+  function renderDescriptions(pane) {
+    var ov = state.adminData.overview;
+    var opts = ov.types.map(function (t) { return '<option value="' + esc(t.id) + '">' + esc(t.name) + '（' + esc(t.formTitle) + '）</option>'; }).join('');
+    pane.innerHTML =
+      '<div class="alert info">申請画面の上部に表示される注意事項・社内ルールを編集します。保存するとすぐに申請画面へ反映されます。</div>' +
+      '<div class="field"><label>申請種別</label><select id="desc-type">' + opts + '</select></div>' +
+      '<div class="rte-toolbar" style="margin-top:12px">' +
+      '<button type="button" data-cmd="formatBlock" data-val="h3">見出し</button><button type="button" data-cmd="formatBlock" data-val="p">本文</button>' +
+      '<button type="button" data-cmd="bold"><b>太字</b></button><button type="button" data-cmd="italic"><i>斜体</i></button><button type="button" data-cmd="underline"><u>下線</u></button>' +
+      '<button type="button" data-cmd="insertUnorderedList">• 箇条書き</button><button type="button" data-cmd="insertOrderedList">1. 番号</button>' +
+      '<button type="button" data-color="#b91c1c" style="color:#b91c1c">赤字</button><button type="button" data-color="#1d4ed8" style="color:#1d4ed8">青字</button><button type="button" data-color="#1f2937">黒字</button>' +
+      '<button type="button" data-cmd="createLink">リンク</button><button type="button" data-cmd="removeFormat">書式解除</button></div>' +
+      '<div class="rte" id="rte" contenteditable="true"></div>' +
+      '<div class="actions"><button class="btn primary" id="save-desc">説明文を保存</button><button class="btn" id="preview-desc">プレビュー</button></div><div id="desc-preview"></div>';
+    var rte = $('#rte');
+    function load() {
+      rte.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+      call('apiAdminGetDescription', $('#desc-type').value).then(function (d) { rte.innerHTML = d.html || '<p></p>'; })
+        .catch(function (e) { toast(e.message, true); rte.innerHTML = ''; });
+    }
+    $('#desc-type').onchange = load;
+    load();
+    $$('.rte-toolbar button', pane).forEach(function (b) {
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      b.addEventListener('click', function () {
+        rte.focus();
+        if (b.dataset.color) { document.execCommand('styleWithCSS', false, true); document.execCommand('foreColor', false, b.dataset.color); return; }
+        if (b.dataset.cmd === 'createLink') { var url = prompt('リンク先の URL を入力してください', 'https://'); if (url) document.execCommand('createLink', false, url); return; }
+        document.execCommand(b.dataset.cmd, false, b.dataset.val || null);
+      });
+    });
+    $('#save-desc').onclick = function () {
+      var b = this; b.disabled = true;
+      call('apiAdminSaveDescription', $('#desc-type').value, rte.innerHTML).then(function (d) { rte.innerHTML = d.html; toast('説明文を保存しました'); })
+        .catch(function (e) { toast(e.message, true); }).then(function () { b.disabled = false; });
+    };
+    $('#preview-desc').onclick = function () { $('#desc-preview').innerHTML = '<h3 style="margin-top:14px">プレビュー</h3><div class="description">' + rte.innerHTML + '</div>'; };
+  }
+
+  function renderAllRequests(pane) {
+    call('apiAdminAllRequests').then(function (list) {
+      pane.innerHTML = '<p class="small muted">現在の運用モードのすべての申請（' + list.length + ' 件）。管理者はすべての申請の詳細を閲覧できます。</p>' + listHtml(list, '申請はありません');
+    }).catch(function (e) { pane.innerHTML = '<div class="error-box">' + esc(e.message) + '</div>'; });
+  }
+
+  init();
+})();
+</script>
