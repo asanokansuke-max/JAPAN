@@ -562,10 +562,63 @@
     const F = G.slotsOf();
     const rows = S.xi.map((id, i) => {
       const p = G.player(id); if (!p || F[i] === 'GK') return '';
-      return `<label class="spsel ins"><span>${E.SLOT_LABEL[F[i]]} ${esc(p.name)}</span><select data-ins="${p.id}" id="ins-${i}"><option value="">標準</option>${Object.entries(E.INSTR).map(([k, x]) => `<option value="${k}" ${S.instr[p.id] === k ? 'selected' : ''}>${x.name}</option>`).join('')}</select></label>`;
+      const sts = E.stylesFor(F[i]);
+      return `<div class="spsel ins"><span>${E.SLOT_LABEL[F[i]]} ${esc(p.name)}</span><select data-ins="${p.id}" id="ins-${i}" aria-label="${esc(p.name)}の個別指示"><option value="">指示：標準</option>${Object.entries(E.INSTR).map(([k, x]) => `<option value="${k}" ${S.instr[p.id] === k ? 'selected' : ''}>${x.name}</option>`).join('')}</select>
+        <select data-pst="${p.id}" aria-label="${esc(p.name)}のプレースタイル" style="margin-top:4px"><option value="">スタイル：標準</option>${sts.map(k => `<option value="${k}" ${S.pstyle[p.id] === k ? 'selected' : ''}>${E.PSTYLE[k].name}${E.PSTYLE[k].trait && (p.traits || []).includes(E.PSTYLE[k].trait) ? ' ◎' : ''}</option>`).join('')}</select></div>`;
     }).join('');
-    return `<section class="card"><h2>個別指示<span class="sub">選手ごとの役割</span></h2><div class="spgrid">${rows}</div>
-      <p class="small muted" style="margin:8px 0 0">${Object.values(E.INSTR).map(x => `${x.name}：${x.desc}`).join(' ／ ')}</p></section>`;
+    const gk = S.xi.map(G.player).find((p, i) => p && F[i] === 'GK');
+    const gkRow = gk ? `<div class="spsel ins"><span>GK ${esc(gk.name)}</span><select data-pst="${gk.id}" aria-label="${esc(gk.name)}のプレースタイル"><option value="">スタイル：標準</option>${E.stylesFor('GK').map(k => `<option value="${k}" ${S.pstyle[gk.id] === k ? 'selected' : ''}>${E.PSTYLE[k].name}</option>`).join('')}</select></div>` : '';
+    return `<section class="card"><h2>個別指示とプレースタイル<span class="sub">選手ごとの役割</span></h2><div class="spgrid">${rows}${gkRow}</div>
+      <p class="small muted" style="margin:8px 0 0">◎は特徴に合ったスタイル（効果が満額）。合わないスタイルは効果が7割にとどまる。ボード上の選手を長押しすると説明つきで選べる。</p>
+      <details style="margin-top:6px"><summary class="small" style="cursor:pointer;font-weight:700">指示とスタイルの説明</summary><p class="small muted" style="margin:6px 0 0">${Object.values(E.INSTR).map(x => `${x.name}：${x.desc}`).join(' ／ ')}</p><p class="small muted" style="margin:6px 0 0">${Object.values(E.PSTYLE).map(x => `${x.name}：${x.desc}`).join(' ／ ')}</p></details></section>`;
+  }
+
+  // チーム指示：攻撃・守備・切り替え
+  function tiAdvice(S) {
+    const fx = G.nextFixture && G.nextFixture();
+    if (!fx || !G.oppPlan) return null;
+    const plan = G.oppPlan(fx), n = G.nation(fx.opp);
+    if (!plan || !n) return null;
+    const gap = n.rating - (S.jpnRating || G.japanStrength());
+    const rec = {}, why = [];
+    if (gap > 4) { Object.assign(rec, { line: 'low', win: 'counter', lose: 'regroup', pass: 'direct' }); why.push('格上なので低い位置で構えて速攻'); }
+    else if (gap < -5) { Object.assign(rec, { line: 'high', lose: 'counterpress', finish: 'work', pass: 'short' }); why.push('格下なので押し込んで崩し切る'); }
+    if (plan.style === 'press') { rec.pass = 'direct'; rec.win = 'counter'; why.push('相手のハイプレスは長いボールで回避'); }
+    if (plan.style === 'counter') { rec.line = 'mid'; rec.lose = 'counterpress'; why.push('相手の速攻に備えて即時奪回'); }
+    if (plan.style === 'pos') { rec.prs = 'high'; why.push('保持型の相手には前から圧力'); }
+    const cond = plan.cond;
+    if (cond && ['大雨', '雪'].includes(cond.weather) || cond && cond.pitch === '荒れ') { rec.pass = 'direct'; why.push('ピッチ状態が悪くショートパスは危険'); }
+    if (cond && cond.ref && cond.ref.strict > 1.1) { rec.tackle = 'soft'; why.push('厳しい主審なのでタックルは慎重に'); }
+    return { rec, why, opp: G.nname(fx.opp) };
+  }
+  function tiWarn(ti, xi, slots) {
+    const ps = xi.map((id, i) => ({ p: typeof id === 'object' ? id : G.player(id), s: slots[i] })).filter(x => x.p);
+    const has = (x, t) => (x.p.traits || []).includes(t);
+    const w = [];
+    if (ti.line === 'high' && !ps.some(x => x.s === 'CB' && has(x, 'スピード'))) w.push('CBに快足がいない。高いラインの裏を突かれやすい（スイーパーGKで軽減）');
+    if (ti.finish === 'cross' && !ps.some(x => ['ST', 'CB'].includes(x.s) && has(x, '空中戦'))) w.push('空中戦に強い選手が前線にいない。クロス攻撃の効果は薄い');
+    if (ti.prs === 'high' && ti.lose === 'counterpress' && ti.tempo === 'fast') w.push('消耗が非常に激しい。60分過ぎから足が止まる');
+    if (ti.tackle === 'hard') w.push('激しいタックルは警告・PKのリスクが上がる');
+    if (ti.pass === 'short' && ti.tempo === 'fast') w.push('ショートパスで速いテンポは相手陣で奪われやすい（保持はやや増える）');
+    return w;
+  }
+  function tiCard(S, mode) {
+    const lv = mode === 'live';
+    const ti = lv ? Object.assign({}, E.TI_DEFAULT, live.sim.teams[live.sim.userSide].spec.ti) : Object.assign({}, E.TI_DEFAULT, S.ti);
+    const act = lv ? 'live-ti' : 'ti';
+    const groups = ['攻撃', '守備', '切替'];
+    const row = k => `<div class="tirow"><span>${E.TI[k].name}</span><div class="seg">${Object.entries(E.TI[k].opts).map(([v, l]) => `<button data-act="${act}" data-k="${k}" data-v="${v}" aria-pressed="${ti[k] === v}">${l}</button>`).join('')}</div></div>`;
+    const preset = Object.entries(E.TI_PRESETS).find(([, p]) => Object.keys(E.TI_DEFAULT).every(k => p.ti[k] === ti[k]));
+    const T = lv ? live.sim.teams[live.sim.userSide] : null;
+    const warn = lv ? tiWarn(ti, T.onPitch.filter(e => !e.sent).map(e => e.p), T.onPitch.filter(e => !e.sent).map(e => e.slot)) : tiWarn(ti, S.xi, G.slotsOf());
+    const adv = lv ? null : tiAdvice(S);
+    const body = `<div class="row" style="gap:6px;margin-bottom:10px"><span class="small muted">プリセット</span>${Object.entries(E.TI_PRESETS).map(([k, p]) => `<button class="btn sm" data-act="${act}-preset" data-v="${k}" aria-pressed="${preset && preset[0] === k}">${p.name}</button>`).join('')}<button class="btn sm" data-act="${act}-preset" data-v="">標準に戻す</button></div>
+      ${groups.map(g => `<div class="tigroup"><div class="eyebrow">${g === '切替' ? '切り替え' : g + '時'}</div>${Object.keys(E.TI).filter(k => E.TI[k].group === g).map(row).join('')}</div>`).join('')}
+      ${warn.length ? `<div class="small" style="margin-top:8px;display:grid;gap:2px">${warn.map(x => `<div><span class="chip warn">注意</span> ${esc(x)}</div>`).join('')}</div>` : ''}
+      ${adv && adv.why.length ? `<div class="small" style="margin-top:10px"><b>分析担当（${esc(adv.opp)}戦）：</b>${esc(adv.why.join('。'))}。<br><span class="muted">${Object.entries(adv.rec).map(([k, v]) => `${E.TI[k].name}「${E.TI[k].opts[v]}」`).join('、')}</span> <button class="btn sm" data-act="ti-advice">提案を反映</button></div>` : ''}`;
+    if (lv) return `<details class="tidetails"${live.tiOpen ? ' open' : ''}><summary class="eyebrow" style="cursor:pointer;margin:12px 0 6px" data-act="live-ti-toggle">チーム指示${preset ? ` <span class="chip ai">${E.TI_PRESETS[preset[0]].name}</span>` : ''}</summary>${body}</details>`;
+    return `<section class="card"><h2>チーム指示<span class="sub">${preset ? E.TI_PRESETS[preset[0]].name : 'カスタム'}</span></h2>${body}
+      <p class="small muted" style="margin:8px 0 0">メンタリティとスタイルの上に重ねて効く。試合中も一時停止して変更できる。</p></section>`;
   }
 
   function pairCard(S) {
@@ -696,6 +749,7 @@
         <section class="card"><h2>推定戦力<span class="sub">連携 ${Math.round(G.teamChem(S.xi))} ・ 熟成 ${Math.round(S.fam[S.formation])}</span></h2>
           ${L ? `<div class="bars">${bar('攻撃', L.att)}${bar('中盤', L.mid)}${bar('守備', L.def)}${bar('GK', L.gk)}</div>` : '<p class="muted">11人を選ぶと表示</p>'}
         </section>
+        ${tiCard(S)}
         ${instrCard(S)}
         ${pairCard(S)}
         ${setPieceCard(S)}
@@ -704,25 +758,30 @@
 
   // 長押しメニュー：役割と個別指示
   function roleModal(S, m) {
-    let p, cur, base, ins;
+    let p, cur, base, ins, pst;
     if (m.mode === 'live') {
       const sim = live.sim, T = sim.teams[sim.userSide], e = T.onPitch[m.i];
       if (!e) return '';
-      p = e.p; cur = e.slot; ins = e.instr || null;
+      p = e.p; cur = e.slot; ins = e.instr || null; pst = e.style || null;
       base = E.FORMATIONS[T.spec.formation][m.i][0];
     } else {
       p = G.player(S.xi[m.i]);
       cur = G.slotsOf()[m.i]; base = E.FORMATIONS[S.formation][m.i][0];
       ins = p ? S.instr[p.id] : null;
+      pst = p ? S.pstyle[p.id] : null;
     }
     if (!p) return '';
+    const sts = E.stylesFor(cur);
+    if (pst && !sts.includes(pst)) pst = null;
+    const styleHTML = sts.length ? `<h3 style="font-size:13px;margin:14px 0 6px">プレースタイル</h3>
+      <div class="trainings"><button class="train" data-act="pst-set" data-i="${m.i}" data-v="" aria-pressed="${!pst}"><b>標準</b><span>ポジションの基本どおり</span></button>${sts.map(k => { const x = E.PSTYLE[k]; const ok = x.trait && (p.traits || []).includes(x.trait); return `<button class="train" data-act="pst-set" data-i="${m.i}" data-v="${k}" aria-pressed="${pst === k}"><b>${x.name}${ok ? ' <span class="chip good">特徴に合う</span>' : ''}</b><span>${esc(x.desc)}</span></button>`; }).join('')}</div>` : '';
     const roles = [...new Set([base].concat(E.ROLE_ALTS[base] || [], E.ROLE_ALTS[cur] || [], [cur]))].filter(r => r !== 'GK' || base === 'GK');
     return `<div class="overlay top" data-act="close-bg"><div class="modal" role="dialog" aria-modal="true" aria-label="役割と指示">
-      <div class="modal-h"><div><div class="eyebrow">${m.mode === 'live' ? '試合中の変更' : '作戦ボード'}</div><h2>${esc(p.name)}</h2><p class="small muted" style="margin:2px 0 0">現在：${E.SLOT_LABEL[cur]}${ins ? ` ・ ${E.INSTR[ins].name}` : ''}</p></div><button class="x" data-act="close" aria-label="閉じる">×</button></div>
-      ${cur === 'GK' ? '<p class="small muted">GKの役割は変更できない。</p>' : `<h3 style="font-size:13px;margin:0 0 6px">役割</h3>
+      <div class="modal-h"><div><div class="eyebrow">${m.mode === 'live' ? '試合中の変更' : '作戦ボード'}</div><h2>${esc(p.name)}</h2><p class="small muted" style="margin:2px 0 0">現在：${E.SLOT_LABEL[cur]}${pst ? ` ・ ${E.PSTYLE[pst].name}` : ''}${ins ? ` ・ ${E.INSTR[ins].name}` : ''}</p></div><button class="x" data-act="close" aria-label="閉じる">×</button></div>
+      ${cur === 'GK' ? '<p class="small muted">GKの役割は変更できない。</p>' + styleHTML : `<h3 style="font-size:13px;margin:0 0 6px">役割</h3>
       <div class="trainings">${roles.map(r => `<button class="train" data-act="role-set" data-i="${m.i}" data-v="${r}" aria-pressed="${r === cur}"><b>${E.SLOT_LABEL[r]}${r === base ? ' <span class="muted small">基本</span>' : ''}</b><span>適性 ${Math.round(E.fit(p, r) * 100)}%</span></button>`).join('')}</div>
       <h3 style="font-size:13px;margin:14px 0 6px">個別指示</h3>
-      <div class="trainings"><button class="train" data-act="ins-set" data-i="${m.i}" data-v="" aria-pressed="${!ins}"><b>標準</b><span>指示なし</span></button>${Object.entries(E.INSTR).map(([k, x]) => `<button class="train" data-act="ins-set" data-i="${m.i}" data-v="${k}" aria-pressed="${ins === k}"><b>${x.name}</b><span>${x.desc}</span></button>`).join('')}</div>`}
+      <div class="trainings"><button class="train" data-act="ins-set" data-i="${m.i}" data-v="" aria-pressed="${!ins}"><b>標準</b><span>指示なし</span></button>${Object.entries(E.INSTR).map(([k, x]) => `<button class="train" data-act="ins-set" data-i="${m.i}" data-v="${k}" aria-pressed="${ins === k}"><b>${x.name}</b><span>${x.desc}</span></button>`).join('')}</div>${styleHTML}`}
       ${m.mode === 'pre' ? `<div class="row" style="margin-top:14px"><button class="btn sm" data-act="slot" data-i="${m.i}">選手を変更</button><button class="btn sm" data-act="player" data-id="${p.id}">選手の詳細</button></div>` : ''}
     </div></div>`;
   }
@@ -1034,8 +1093,9 @@
           <div class="seg">${Object.entries(E.MENT).map(([k, l]) => `<button data-act="live-ment" data-v="${k}" aria-pressed="${T.spec.tactics.ment === k}">${l}</button>`).join('')}</div>
           <div class="eyebrow" style="margin:12px 0 6px">スタイル</div>
           <div class="seg">${Object.entries(E.STYLE).map(([k, l]) => `<button data-act="live-style" data-v="${k}" aria-pressed="${T.spec.tactics.style === k}">${l}</button>`).join('')}</div>
+          ${tiCard(G.state(), 'live')}
           <div class="eyebrow" style="margin:12px 0 6px">ピッチ上の状態</div>
-          <div class="onpitch">${T.onPitch.map((e, i) => { const st = Math.round(e.stamina); return `<div class="op ${e.sent ? 'out' : ''}"><span class="num muted">${E.SLOT_LABEL[e.slot]}</span><span>${esc(e.p.name)}${e.yc ? ' <span class="chip">警告</span>' : ''}${e.injured ? ' <span class="chip bad">負傷</span>' : ''}${e.sent ? ' 退場' : ''}${e.instr ? ` <span class="chip ai">${E.INSTR[e.instr].name}</span>` : ''}</span><span class="stm"><i class="${st < 45 ? 'low' : st < 65 ? 'mid' : ''}" style="width:${st}%"></i></span><span class="num">${Math.round(sim.eff(e))}</span></div>`; }).join('')}</div>
+          <div class="onpitch">${T.onPitch.map((e, i) => { const st = Math.round(e.stamina); return `<div class="op ${e.sent ? 'out' : ''}"><span class="num muted">${E.SLOT_LABEL[e.slot]}</span><span>${esc(e.p.name)}${e.yc ? ' <span class="chip">警告</span>' : ''}${e.injured ? ' <span class="chip bad">負傷</span>' : ''}${e.sent ? ' 退場' : ''}${e.style ? ` <span class="chip">${E.PSTYLE[e.style].name}</span>` : ''}${e.instr ? ` <span class="chip ai">${E.INSTR[e.instr].name}</span>` : ''}</span><span class="stm"><i class="${st < 45 ? 'low' : st < 65 ? 'mid' : ''}" style="width:${st}%"></i></span><span class="num">${Math.round(sim.eff(e))}</span></div>`; }).join('')}</div>
         </div>
       </div></section>`;
   }
@@ -1206,6 +1266,18 @@
       else { const S = G.state(); const id = S.xi[+d.i]; if (d.v) S.instr[id] = d.v; else delete S.instr[id]; G.save(); ui.modal = null; render(); }
       toast(d.v ? `指示：${E.INSTR[d.v].name}` : '個別指示を解除した');
     },
+    'pst-set'(d) {
+      const m = ui.modal; if (!m) return;
+      if (m.mode === 'live') { live.sim.setStyle(live.sim.userSide, +d.i, d.v || null); ui.modal = null; renderModal(); renderLive(); }
+      else { const S = G.state(); const id = S.xi[+d.i]; if (d.v) S.pstyle[id] = d.v; else delete S.pstyle[id]; G.save(); ui.modal = null; render(); }
+      toast(d.v ? `スタイル：${E.PSTYLE[d.v].name}` : 'プレースタイルを標準にした');
+    },
+    ti(d) { const S = G.state(); S.ti[d.k] = d.v; G.save(); render(); },
+    'ti-preset'(d) { const S = G.state(); S.ti = Object.assign({}, E.TI_DEFAULT, d.v ? E.TI_PRESETS[d.v].ti : {}); G.save(); render(); toast(d.v ? `プリセット「${E.TI_PRESETS[d.v].name}」` : 'チーム指示を標準に戻した'); },
+    'ti-advice'() { const S = G.state(); const a = tiAdvice(S); if (!a) return; Object.assign(S.ti, a.rec); G.save(); render(); toast('分析担当の提案を反映した'); },
+    'live-ti'(d) { live.tiOpen = true; live.sim.setTI(live.sim.userSide, { [d.k]: d.v }); renderLive(); },
+    'live-ti-preset'(d) { live.tiOpen = true; live.sim.setTI(live.sim.userSide, Object.assign({}, E.TI_DEFAULT, d.v ? E.TI_PRESETS[d.v].ti : {})); renderLive(); toast(d.v ? `プリセット「${E.TI_PRESETS[d.v].name}」` : 'チーム指示を標準に戻した'); },
+    'live-ti-toggle'() { live.tiOpen = !live.tiOpen; },
     task(d) { ui.modal = { type: d.v }; renderModal(); },
     'live-form'(d) {
       const S = G.state(); const sim = live.sim;
@@ -1362,6 +1434,8 @@
   document.addEventListener('change', ev => {
     const ik = ev.target.dataset && ev.target.dataset.ins;
     if (ik) { const S = G.state(); if (ev.target.value) S.instr[ik] = ev.target.value; else delete S.instr[ik]; G.save(); render(); toast('個別指示を設定した'); return; }
+    const pk = ev.target.dataset && ev.target.dataset.pst;
+    if (pk) { const S = G.state(); if (ev.target.value) S.pstyle[pk] = ev.target.value; else delete S.pstyle[pk]; G.save(); render(); toast('プレースタイルを設定した'); return; }
     const ck = ev.target.dataset && ev.target.dataset.cap;
     if (ck) { if (ev.target.value) X.setCaptain(ev.target.value, ck === 'v'); else { const S = G.state(); if (ck === 'v') S.vice = null; else S.captain = null; G.save(); } render(); return; }
     const k = ev.target.dataset && ev.target.dataset.sp;

@@ -55,6 +55,7 @@
   };
   const SHOOT_W = { GK: 0, CB: 0.25, LB: 0.4, RB: 0.4, LWB: 0.6, RWB: 0.6, DM: 0.4, CM: 0.9, AM: 2, LM: 1.4, RM: 1.4, LW: 2, RW: 2, ST: 3.2 };
   const ASSIST_W = { GK: 0.05, CB: 0.3, LB: 1, RB: 1, LWB: 1.2, RWB: 1.2, DM: 0.8, CM: 1.6, AM: 2.2, LM: 1.6, RM: 1.6, LW: 2, RW: 2, ST: 1 };
+  const WIDE = ['LB', 'RB', 'LWB', 'RWB', 'LM', 'RM', 'LW', 'RW'], CENTRE = ['CM', 'AM', 'DM', 'ST'];
   const HEAD_W = { GK: 0, CB: 2.5, LB: 0.4, RB: 0.4, LWB: 0.4, RWB: 0.4, DM: 1, CM: 0.6, AM: 0.4, LM: 0.4, RM: 0.4, LW: 0.4, RW: 0.4, ST: 2 };
   const DEF_W = { GK: 0.1, CB: 2, LB: 1.5, RB: 1.5, LWB: 1.3, RWB: 1.3, DM: 2, CM: 1.2, AM: 0.6, LM: 0.8, RM: 0.8, LW: 0.5, RW: 0.5, ST: 0.5 };
 
@@ -102,6 +103,93 @@
     if (ins === 'mark') { w[2] = Math.max(0, w[2] - 0.2); w[0] += 0.1; }
     if (ins === 'hold') { w[0] = 0; w[1] = Math.max(0, w[1] - 0.1); w[2] += 0.2; }
     e.w = w; e.instr = ins;
+  }
+
+  // チーム指示：攻撃時・守備時・切り替え時
+  const TI = {
+    tempo: { name: 'テンポ', group: '攻撃', opts: { slow: '遅攻', normal: '標準', fast: '速い' } },
+    width: { name: '攻撃の幅', group: '攻撃', opts: { narrow: '中央', normal: '標準', wide: 'サイド' } },
+    pass: { name: 'パス', group: '攻撃', opts: { short: 'ショート', mixed: '混合', direct: 'ロング' } },
+    finish: { name: 'フィニッシュ', group: '攻撃', opts: { work: '崩し切る', mixed: '標準', shoot: 'ミドル', cross: 'クロス' } },
+    line: { name: '最終ライン', group: '守備', opts: { low: '低い', mid: '標準', high: '高い' } },
+    prs: { name: 'プレス強度', group: '守備', opts: { low: '控える', mid: '標準', high: '激しく' } },
+    tackle: { name: 'タックル', group: '守備', opts: { soft: '慎重', normal: '標準', hard: '激しく' } },
+    lose: { name: 'ボールを失ったら', group: '切替', opts: { regroup: '帰陣', normal: '標準', counterpress: '即時奪回' } },
+    win: { name: 'ボールを奪ったら', group: '切替', opts: { hold: '落ち着かせる', normal: '標準', counter: '速攻' } },
+    waste: { name: 'リード時の時間稼ぎ', group: '切替', opts: { off: 'しない', on: 'する' } }
+  };
+  const TI_DEFAULT = { tempo: 'normal', width: 'normal', pass: 'mixed', finish: 'mixed', line: 'mid', prs: 'mid', tackle: 'normal', lose: 'normal', win: 'normal', waste: 'off' };
+  const TI_PRESETS = {
+    possession: { name: 'ポゼッション', ti: { tempo: 'slow', width: 'wide', pass: 'short', finish: 'work', line: 'high', prs: 'mid', tackle: 'normal', lose: 'counterpress', win: 'hold', waste: 'off' } },
+    counter: { name: '堅守速攻', ti: { tempo: 'fast', width: 'normal', pass: 'direct', finish: 'mixed', line: 'low', prs: 'low', tackle: 'normal', lose: 'regroup', win: 'counter', waste: 'on' } },
+    gegen: { name: 'ハイプレス', ti: { tempo: 'fast', width: 'normal', pass: 'mixed', finish: 'mixed', line: 'high', prs: 'high', tackle: 'hard', lose: 'counterpress', win: 'counter', waste: 'off' } },
+    wing: { name: 'サイド攻撃', ti: { tempo: 'normal', width: 'wide', pass: 'mixed', finish: 'cross', line: 'mid', prs: 'mid', tackle: 'normal', lose: 'normal', win: 'normal', waste: 'off' } },
+    park: { name: '逃げ切り', ti: { tempo: 'slow', width: 'narrow', pass: 'mixed', finish: 'mixed', line: 'low', prs: 'low', tackle: 'normal', lose: 'regroup', win: 'hold', waste: 'on' } }
+  };
+  // 指示を数値に変換。ctx: { lead, minute, oppFast }
+  function tiMods(ti) {
+    const t = Object.assign({}, TI_DEFAULT, ti || {});
+    const m = { poss: 0, rate: 1, q: 1, oRate: 1, oQ: 1, drain: 1, card: 1, oPen: 1, corner: 1, counterQ: 1, att: 0, mid: 0, def: 0, wide: 1, centre: 1, head: 1, ti: t };
+    if (t.tempo === 'slow') { m.poss += 0.02; m.rate *= 0.94; m.q *= 1.04; m.drain *= 0.96; }
+    if (t.tempo === 'fast') { m.poss -= 0.02; m.rate *= 1.07; m.q *= 0.97; m.drain *= 1.06; }
+    if (t.width === 'narrow') { m.def += 0.6; m.att -= 0.3; m.centre = 1.25; m.wide = 0.8; m.corner *= 0.9; }
+    if (t.width === 'wide') { m.att += 0.5; m.def -= 0.4; m.wide = 1.3; m.centre = 0.9; m.corner *= 1.12; m.drain *= 1.02; }
+    if (t.pass === 'short') { m.poss += 0.03; m.q *= 1.03; m.rate *= 0.97; }
+    if (t.pass === 'direct') { m.poss -= 0.035; m.rate *= 1.05; m.q *= 0.95; m.head *= 1.3; }
+    if (t.finish === 'work') { m.rate *= 0.86; m.q *= 1.14; }
+    if (t.finish === 'shoot') { m.rate *= 1.16; m.q *= 0.83; m.corner *= 1.06; }
+    if (t.finish === 'cross') { m.rate *= 1.04; m.q *= 0.93; m.wide *= 1.35; m.head *= 1.8; m.corner *= 1.15; }
+    if (t.line === 'low') { m.def += 0.9; m.mid -= 0.6; m.oRate *= 1.07; m.oQ *= 0.9; m.rate *= 0.95; }
+    if (t.line === 'high') { m.mid += 0.7; m.def -= 0.3; m.oRate *= 0.93; m.oQ *= 1.08; m.drain *= 1.03; }
+    if (t.prs === 'low') { m.mid -= 0.4; m.oRate *= 1.04; m.drain *= 0.9; m.card *= 0.9; }
+    if (t.prs === 'high') { m.mid += 0.8; m.oRate *= 0.94; m.drain *= 1.14; m.card *= 1.1; }
+    if (t.tackle === 'soft') { m.def -= 0.5; m.card *= 0.6; m.oPen *= 0.85; }
+    if (t.tackle === 'hard') { m.mid += 0.4; m.def += 0.3; m.card *= 1.3; m.oPen *= 1.2; }
+    if (t.lose === 'regroup') { m.oRate *= 0.95; m.oQ *= 0.95; m.poss -= 0.01; m.rate *= 0.97; }
+    if (t.lose === 'counterpress') { m.poss += 0.015; m.rate *= 1.04; m.oQ *= 1.05; m.drain *= 1.08; }
+    if (t.win === 'hold') { m.poss += 0.015; m.counterQ *= 0.9; }
+    if (t.win === 'counter') { m.poss -= 0.015; m.counterQ *= 1.12; m.rate *= 1.03; }
+    return m;
+  }
+
+  // 選手個別のプレースタイル（ポジションごと）
+  const PSTYLE = {
+    target: { name: 'ターゲットマン', slots: ['ST'], desc: '空中戦で起点に。ヘディング・アシスト↑', trait: '空中戦', w: [0, 0.05, 0], shoot: 0.9, assist: 1.3, head: 1.8 },
+    false9: { name: '偽9番', slots: ['ST'], desc: '中盤に下りて組み立て。中盤↑・アシスト↑・得点↓', trait: 'パス', w: [0, 0.3, -0.1], shoot: 0.7, assist: 1.6 },
+    poacher: { name: 'ポーチャー', slots: ['ST'], desc: 'ゴール前で待つ。得点↑、組み立て↓', trait: '決定力', w: [0, -0.15, 0.1], shoot: 1.35, assist: 0.6 },
+    pressfw: { name: 'プレッシングFW', slots: ['ST', 'LW', 'RW', 'AM'], desc: '前線から追う。中盤↑、消耗↑', trait: 'ハイプレス', w: [0.05, 0.1, -0.05], press: true, drain: 1.15 },
+    winger: { name: 'ウインガー', slots: ['LW', 'RW', 'LM', 'RM'], desc: '縦に突破してクロス。アシスト↑', trait: 'クロス', w: [0, 0, 0.05], shoot: 0.8, assist: 1.4 },
+    inside: { name: 'インサイドフォワード', slots: ['LW', 'RW', 'LM', 'RM'], desc: 'カットインしてシュート。得点↑', trait: 'ドリブル', w: [0, 0, 0.1], shoot: 1.4, assist: 0.85 },
+    shadow: { name: 'シャドー', slots: ['AM', 'CM'], desc: '2列目から飛び出す。得点↑、組み立て↓', trait: '決定力', w: [0, -0.2, 0.25], shoot: 1.45 },
+    playmaker: { name: '司令塔', slots: ['AM', 'CM'], desc: '攻撃のタクト。中盤↑・アシスト↑', trait: 'パス', w: [-0.05, 0.25, -0.05], assist: 1.45, shoot: 0.85 },
+    b2b: { name: 'ボックストゥボックス', slots: ['CM'], desc: '攻守に走る。全体↑、消耗↑', w: [0.1, 0.1, 0.1], shoot: 1.15, drain: 1.1 },
+    winner: { name: 'ボールウィナー', slots: ['CM', 'DM'], desc: '刈り取り役。守備・中盤↑、警告↑', trait: 'ボール奪取', w: [0.2, 0.1, -0.15], card: 1.4 },
+    anchor: { name: 'アンカー', slots: ['DM'], desc: '最終ラインの前を守る。守備↑', trait: '対人守備', w: [0.3, 0, -0.1], assist: 0.8 },
+    regista: { name: 'レジスタ', slots: ['DM'], desc: '低い位置から配球。中盤↑・アシスト↑、守備↓', trait: 'パス', w: [-0.15, 0.25, 0], assist: 1.5 },
+    inverted: { name: 'インバーテッドSB', slots: ['LB', 'RB'], desc: '内側に入って中盤化。中盤↑、攻撃↓', trait: 'パス', w: [0, 0.3, -0.1], assist: 0.8 },
+    attackfb: { name: '攻撃的SB', slots: ['LB', 'RB', 'LWB', 'RWB'], desc: '高い位置を取る。攻撃↑・アシスト↑、守備↓、消耗↑', trait: 'スピード', w: [-0.2, 0, 0.25], assist: 1.3, drain: 1.08 },
+    defensivefb: { name: '守備的SB', slots: ['LB', 'RB', 'LWB', 'RWB'], desc: '守備に専念。守備↑、攻撃↓', trait: '対人守備', w: [0.25, 0, -0.2], assist: 0.75 },
+    bpd: { name: 'ビルドアップCB', slots: ['CB'], desc: '後方から持ち運ぶ。中盤↑、守備わずかに↓', trait: 'パス', w: [-0.1, 0.2, 0], assist: 1.5 },
+    stopper: { name: 'ストッパー', slots: ['CB'], desc: '前に出て潰す。守備↑・空中戦↑、警告↑', trait: '空中戦', w: [0.15, 0, 0], head: 1.2, card: 1.3 },
+    sweeper: { name: 'スイーパーGK', slots: ['GK'], desc: '裏のスペースをケア。高いラインの弱点を補う', sweeper: true },
+    keeper: { name: '堅実GK', slots: ['GK'], desc: 'ゴールマウスを守る。至近距離のセーブ↑', gkBonus: 0.8 }
+  };
+  function stylesFor(slot) { return Object.keys(PSTYLE).filter(k => PSTYLE[k].slots.includes(slot)); }
+  function applyStyle(e, key) {
+    const st = PSTYLE[key];
+    if (!st || !st.slots.includes(e.slot)) return;
+    const w = (e.w || SLOT_W[e.slot]).slice();
+    const fitT = !st.trait || has(e.p, st.trait) ? 1 : 0.7;
+    if (st.w) for (let i = 0; i < 3; i++) w[i] = Math.max(0, w[i] + st.w[i] * fitT);
+    e.w = w;
+    e.style = key;
+    const k = v => v == null ? 1 : 1 + (v - 1) * fitT;
+    e.shootMul = k(st.shoot); e.assistMul = k(st.assist); e.headMul = k(st.head); e.cardMul = st.card || 1;
+    if (st.press) e.press = true;
+    if (st.drain) e.drainMul = (e.drainMul || 1) * st.drain;
+    if (st.sweeper) e.sweeper = true;
+    if (st.gkBonus) e.gkBonus = st.gkBonus;
+    if (st.trait && has(e.p, st.trait)) e.styleFit = true;
   }
 
   function poisson(l) { const L = Math.exp(-l); let k = 0, p = 1; do { k++; p *= rnd(); } while (p > L); return k - 1; }
@@ -155,6 +243,8 @@
       const e = { p, slot, stamina: cond, yc: 0, sent: false, injured: false, rating: 0, goals: 0, assists: 0, shots: 0, sot: 0, saves: 0, minIn: this ? this.minute : 0, minOut: null };
       const ins = spec && spec.instr && spec.instr[p.id];
       if (ins && slot !== 'GK') applyInstr(e, ins);
+      const ps = spec && spec.pstyle && spec.pstyle[p.id];
+      if (ps) applyStyle(e, ps);
       return e;
     }
 
@@ -164,6 +254,7 @@
       let v = p.ovr * fit(p, e.slot) * (1 + (p.form || 0) * 0.012);
       if (e.stamina < 65) v *= 1 - (65 - e.stamina) * 0.004;
       if (e.injured) v *= 0.65;
+      if (e.styleFit) v *= 1.015;
       return v;
     }
 
@@ -173,7 +264,7 @@
       let gk = 40;
       for (const e of t.onPitch) {
         if (e.sent) continue;
-        if (e.slot === 'GK') { gk = this.eff(e); continue; }
+        if (e.slot === 'GK') { gk = this.eff(e) + (e.gkBonus || 0); continue; }
         const w = e.w || SLOT_W[e.slot], v = this.eff(e);
         for (let i = 0; i < 3; i++) { acc[i] += w[i] * v; ws[i] += w[i]; }
       }
@@ -204,7 +295,34 @@
       const pressers = t.onPitch.filter(e => e.press && !e.sent).length;
       if (pressers) L.mid += Math.min(1.2, pressers * 0.4) * (this.minute > 70 ? 0.4 : 1);
       if (opp && opp.spec.tactics.style === 'press' && s.tactics.style === 'pos') L.mid -= 0.5;
+      // チーム指示
+      const tm = this.tm(t);
+      L.att += tm.att; L.mid += tm.mid; L.def += tm.def;
+      if (tm.ti.prs === 'high' && this.minute > 65) L.mid -= 1.2;
+      if (tm.ti.pass === 'short' && (wx === '大雨' || wx === '雪' || pt === '荒れ')) L.mid -= 0.8;
+      if (tm.ti.pass === 'direct' && (wx === '強風')) L.att -= 0.6;
       return L;
+    }
+
+    // チーム指示の数値（キャッシュ）
+    tm(t) {
+      if (!t._tm || t._tmKey !== t.spec.ti) { t._tm = tiMods(t.spec.ti); t._tmKey = t.spec.ti; }
+      return t._tm;
+    }
+    setTI(side, ti) {
+      const X = this.teams[side];
+      const before = Object.assign({}, TI_DEFAULT, X.spec.ti || {});
+      X.spec.ti = Object.assign({}, before, ti);
+      const ch = Object.keys(ti).filter(k => before[k] !== X.spec.ti[k]).map(k => `${TI[k].name}「${TI[k].opts[X.spec.ti[k]]}」`);
+      if (ch.length) this._note(side, `チーム指示を変更：${ch.join('、')}`);
+    }
+    setStyle(side, i, key) {
+      const X = this.teams[side];
+      const e = X.onPitch[i];
+      if (!e || e.sent) return;
+      X.spec.pstyle = Object.assign({}, X.spec.pstyle, { [e.p.id]: key || undefined });
+      this._reweigh(e, X.spec);
+      this._note(side, key ? `${e.p.name}のプレースタイルを「${PSTYLE[key].name}」に` : `${e.p.name}のプレースタイルを標準に`);
     }
 
     active(t) { return t.onPitch.filter(e => !e.sent); }
@@ -275,7 +393,8 @@
       const [A, B] = this.teams;
       const LA = this.lines(A), LB = this.lines(B);
       const sp = s => ({ pos: 0.05, counter: -0.05, press: 0.02, bal: 0 })[s.tactics.style] + ({ att: 0.02, def: -0.03, bal: 0 })[s.tactics.ment];
-      let pA = 0.5 + 0.010 * (LA.mid - LB.mid) + sp(A.spec) - sp(B.spec);
+      const TA = this.tm(A), TB = this.tm(B), TM = [TA, TB];
+      let pA = 0.5 + 0.010 * (LA.mid - LB.mid) + sp(A.spec) - sp(B.spec) + TA.poss - TB.poss;
       pA = clamp(pA, 0.28, 0.72);
       this.possAcc[0] += pA; this.possAcc[1] += 1 - pA;
       const P = [pA, 1 - pA], L = [LA, LB];
@@ -290,10 +409,17 @@
         if (this.minute > 70 && diff < 0) rate *= 1.25;
         if (this.minute > 75 && diff > 0 && xs.ment !== 'att') rate *= 0.85;
         rate *= 1 - X.menDown * 0.12;
+        const TX = TM[s], TY = TM[1 - s];
+        const wasting = diff > 0 && this.minute > 70;
+        rate *= TX.rate * TY.oRate;
+        if (wasting && TX.ti.waste === 'on') rate *= 0.85;
+        if (wasting && TY.ti.waste === 'on') rate *= 0.9;
         if (rnd() < rate) this._shot(X, Y, LX, LY);
-        if (rnd() < 0.05 * Math.sqrt(P[s] / 0.5)) this._setPiece(X, Y, LX, LY);
-        if (rnd() < 0.0024 * Math.exp(0.02 * (LX.att - LY.def))) this._penalty(X, Y, LX, LY);
-        if (rnd() < 0.0155 * (xs.style === 'press' ? 1.2 : 1) * ((this.opts.ref && this.opts.ref.strict) || 1)) this._card(X);
+        if (rnd() < 0.05 * Math.sqrt(P[s] / 0.5) * TX.corner) this._setPiece(X, Y, LX, LY);
+        if (rnd() < 0.0024 * Math.exp(0.02 * (LX.att - LY.def)) * TY.oPen) this._penalty(X, Y, LX, LY);
+        let cr = 0.0155 * (xs.style === 'press' ? 1.2 : 1) * ((this.opts.ref && this.opts.ref.strict) || 1) * TX.card;
+        if (diff > 0 && this.minute > 70 && TX.ti.waste === 'on') cr *= 1.25;
+        if (rnd() < cr) this._card(X);
         for (const e of this.active(X)) {
           if (e.injured) continue;
           let ir = 0.00011 * (has(e.p, 'ガラスの体') ? 3 : 1) * (e.stamina < 40 ? 2 : 1);
@@ -302,7 +428,7 @@
         // 体力消耗
         const heat = this.opts.heat && !X.spec.acclimatized ? 1.15 : 1;
         const wet = ['大雨', '雪'].includes(this.opts.weather) ? 1.06 : 1;
-        const drain = 0.55 * (xs.style === 'press' ? 1.25 : 1) * (xs.ment === 'att' ? 1.05 : 1) * heat * wet;
+        const drain = 0.55 * (xs.style === 'press' ? 1.25 : 1) * (xs.ment === 'att' ? 1.05 : 1) * heat * wet * TX.drain;
         for (const e of this.active(X)) e.stamina = Math.max(5, e.stamina - drain * (e.drainMul || 1) * (e.slot === 'GK' ? 0.3 : 1) * (0.85 + rnd() * 0.3));
         // 微妙な判定（ノーファウル）
         if (rnd() < 0.0009) { this.flags.push({ side: s, type: 'noPen' }); this.log(s, 'var', `${this.teamName(s)}の選手がエリア内で倒れるもノーファウルの判定。抗議も認められず`); }
@@ -332,11 +458,16 @@
     }
 
     _pickShooter(X) {
-      return pickW(this.active(X), e => SHOOT_W[e.slot] * Math.pow(this.eff(e) / 75, 3) * (has(e.p, '決定力') ? 1.4 : 1));
+      const tm = this.tm(X);
+      return pickW(this.active(X), e => SHOOT_W[e.slot] * Math.pow(this.eff(e) / 75, 3) * (has(e.p, '決定力') ? 1.4 : 1) * (e.shootMul || 1)
+        * (tm.head !== 1 && (e.slot === 'ST' || e.slot === 'CB') ? 1 + (tm.head - 1) * (has(e.p, '空中戦') ? 0.6 : 0.2) * (e.headMul || 1) : 1)
+        * (WIDE.includes(e.slot) ? tm.wide : CENTRE.includes(e.slot) ? tm.centre : 1));
     }
     _pickAssist(X, exclude) {
       const c = this.active(X).filter(e => e !== exclude);
-      return pickW(c, e => ASSIST_W[e.slot] * Math.pow(this.eff(e) / 75, 2) * (has(e.p, 'パス') || has(e.p, 'クロス') || has(e.p, 'ドリブル') ? 1.35 : 1));
+      const tm = this.tm(X);
+      return pickW(c, e => ASSIST_W[e.slot] * Math.pow(this.eff(e) / 75, 2) * (has(e.p, 'パス') || has(e.p, 'クロス') || has(e.p, 'ドリブル') ? 1.35 : 1) * (e.assistMul || 1)
+        * (WIDE.includes(e.slot) ? tm.wide : CENTRE.includes(e.slot) ? tm.centre : 1));
     }
 
     _goal(X, scorer, assist, how) {
@@ -367,6 +498,16 @@
       if (xs.style === 'pos') q *= 1.04;
       if (ys.ment === 'def') q *= 0.9;
       if (ys.ment === 'att') q *= 1.08;
+      const TX = this.tm(X), TY = this.tm(Y);
+      q *= TX.q * TY.oQ;
+      // 速攻は相手が前がかりなほど効く
+      if (TX.counterQ !== 1) q *= 1 + (TX.counterQ - 1) * ((ys.ment === 'att' || TY.ti.line === 'high') ? 1.6 : 0.6);
+      // 高いラインの裏を快足FWに突かれる（スイーパーGKなら軽減）
+      if (TY.ti.line === 'high') {
+        const fast = has(sh.p, 'スピード') ? 1.1 : 1;
+        const sw = this.active(Y).some(e => e.sweeper) ? 0.94 : 1;
+        q *= fast * sw;
+      }
       q = clamp(q, 0.01, 0.45);
       X.stats.shots++; X.stats.xg += q; sh.shots++;
       const name = sh.p.name;
@@ -427,7 +568,7 @@
         return;
       }
       const aerialW = ck === 'far' ? 3.2 : 2.2;
-      const target = pickW(act.filter(e => e !== taker), e => HEAD_W[e.slot] * (has(e.p, '空中戦') ? aerialW : 1) * Math.pow(this.eff(e) / 75, 2));
+      const target = pickW(act.filter(e => e !== taker), e => HEAD_W[e.slot] * (has(e.p, '空中戦') ? aerialW : 1) * Math.pow(this.eff(e) / 75, 2) * (e.headMul || 1));
       if (!target) return;
       const ourAerial = act.filter(e => has(e.p, '空中戦')).length;
       const routine = ck === 'far' ? (ourAerial >= 2 ? 1.22 : 0.85) : ck === 'near' ? 1.06 : 1;
@@ -461,7 +602,7 @@
 
     _card(X, who) {
       // 警告を受けた選手は慎重になるので、2枚目はもらいにくい
-      const e = who || pickW(this.active(X), e => DEF_W[e.slot] * (has(e.p, 'ボール奪取') || has(e.p, '対人守備') ? 1.3 : 1) * (e.yc ? 0.15 : 1));
+      const e = who || pickW(this.active(X), e => DEF_W[e.slot] * (has(e.p, 'ボール奪取') || has(e.p, '対人守備') ? 1.3 : 1) * (e.yc ? 0.15 : 1) * (e.cardMul || 1));
       if (!e || e.sent) return;
       X.stats.fouls++;
       if (rnd() < 0.006) { this._sendOff(X, e, '一発レッド'); return; }
@@ -535,9 +676,11 @@
 
     // 役割が変わったら重みを計算し直す
     _reweigh(e, spec) {
-      e.w = null; e.press = false; e.drainMul = 1;
+      e.w = null; e.press = false; e.drainMul = 1; e.style = null; e.shootMul = e.assistMul = e.headMul = e.cardMul = 1; e.sweeper = false; e.gkBonus = 0; e.styleFit = false;
       const ins = e.instr || (spec && spec.instr && spec.instr[e.p.id]);
       if (ins && e.slot !== 'GK') applyInstr(e, ins);
+      const ps = spec && spec.pstyle && spec.pstyle[e.p.id];
+      if (ps) applyStyle(e, ps);
     }
 
     // 試合中の配置換え（スロット入れ替え）
@@ -682,5 +825,5 @@
     }
   }
 
-  root.SBEngine = { INSTR, ROLE_ALTS, ROLE_Y, layout, FORMATIONS, SLOT_LABEL, POS_LABEL, POS_GROUP, SLOT_FIT, SLOT_W, MENT, STYLE, fit, MatchSim, quickSim, setRandom, normal, poisson, pickW, clamp };
+  root.SBEngine = { TI, TI_DEFAULT, TI_PRESETS, tiMods, PSTYLE, stylesFor, INSTR, ROLE_ALTS, ROLE_Y, layout, FORMATIONS, SLOT_LABEL, POS_LABEL, POS_GROUP, SLOT_FIT, SLOT_W, MENT, STYLE, fit, MatchSim, quickSim, setRandom, normal, poisson, pickW, clamp };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -145,7 +145,7 @@
       training: null, trainBonus: null, fam: { '3-4-2-1': 62, '4-2-3-1': 50, '4-3-3': 35, '4-4-2': 30, '3-5-2': 30 },
       board: 60, morale: 60, fans: 55, scoutPts: 3, news: [],
       setPlay: { ck: 'mix', defend: 'zone', ckTaker: null, fkTaker: null, pkTaker: null }, spFam: 40,
-      captain: null, vice: null, upgrades: {}, clubRel: {}, meeting: null, instr: {}, funds: 50, oppState: {}, matches: [], comps: {}, cur: null, log: [], wcResult: null, nextId: 0
+      captain: null, vice: null, upgrades: {}, clubRel: {}, meeting: null, instr: {}, ti: Object.assign({}, E.TI_DEFAULT), pstyle: {}, funds: 50, oppState: {}, matches: [], comps: {}, cur: null, log: [], wcResult: null, nextId: 0
     };
     D.NATIONS.forEach(n => { S.nations[n.code] = { rating: n.rating, base: n.rating }; });
     if (root.SBRank) root.SBRank.init(S);
@@ -292,6 +292,7 @@
       leader: root.SBExtra ? root.SBExtra.leaderBonus(xi) : 0,
       pairs: L ? L.pairBonus(xi) : 0,
       instr: xi.reduce((o, id) => { if (S.instr && S.instr[id]) o[id] = S.instr[id]; return o; }, {}),
+      ti: Object.assign({}, E.TI_DEFAULT, S.ti), pstyle: Object.assign({}, S.pstyle),
       limits: squad.reduce((o, p) => { if (p.minCap) o[p.id] = p.minCap; return o; }, {}),
       setPlay: Object.assign({ fam: S.spFam }, S.setPlay)
     };
@@ -334,7 +335,8 @@
     if (opts && opts.plan) { ment = opts.plan.ment; style = opts.plan.style; }
     return {
       code, name: n.name, isUser: false, players, xi: players.slice(0, 11).map(p => p.id), bench: players.slice(11).map(p => p.id),
-      formation: f, tactics: { ment, style }, autoSub: true, bonus: {}, chem: 62, fam: 65, homeBoost: (opts && opts.host) ? 1.5 : 0
+      formation: f, tactics: { ment, style }, autoSub: true, bonus: {}, chem: 62, fam: 65, homeBoost: (opts && opts.host) ? 1.5 : 0,
+      ti: oppTI(style, ment)
     };
   }
 
@@ -863,6 +865,16 @@
   }
 
   // 試合ごとの相手の作戦（分析担当のレポートと一致させる）
+  // 相手のスタイルからチーム指示を決める
+  function oppTI(style, ment) {
+    const ti = { waste: 'on' };
+    if (style === 'counter') Object.assign(ti, { line: 'low', win: 'counter', lose: 'regroup' });
+    if (style === 'press') Object.assign(ti, { prs: 'high', line: 'high', lose: 'counterpress' });
+    if (style === 'pos') Object.assign(ti, { pass: 'short', win: 'hold' });
+    if (ment === 'def') ti.line = 'low';
+    return ti;
+  }
+
   function oppPlan(fx) {
     S.cur.plans = S.cur.plans || {};
     const k = fx.label + fx.opp;
@@ -1282,6 +1294,8 @@
     if (s.spFam == null) s.spFam = 40;
     if (!s.upgrades) s.upgrades = {};
     if (!s.instr) s.instr = {};
+    s.ti = Object.assign({}, E.TI_DEFAULT, s.ti || {});
+    if (!s.pstyle) s.pstyle = {};
     if (!s.roles) s.roles = {};
     if (s.funds == null) s.funds = 50;
     if (!s.oppState) s.oppState = {};

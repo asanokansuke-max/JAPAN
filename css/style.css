@@ -402,3 +402,10 @@ main.with-bar { padding-bottom: 110px; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--panel); padding: 10px 16px; border-radius: 8px; font-weight: 700; z-index: 30; font-size: 13px; max-width: calc(100% - 32px); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+/* チーム指示 */
+.tigroup { margin-top: 8px; }
+.tigroup .eyebrow { margin-bottom: 4px; }
+.tirow { display: grid; grid-template-columns: 9em minmax(0, 1fr); gap: 8px; align-items: center; padding: 3px 0; }
+.tirow > span { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.tirow .seg button { padding: 5px 9px; font-size: 12px; }
+@media (max-width: 560px) { .tirow { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
