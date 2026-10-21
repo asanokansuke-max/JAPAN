@@ -583,7 +583,11 @@
     const rec = {}, why = [];
     if (gap > 4) { Object.assign(rec, { line: 'low', win: 'counter', lose: 'regroup', pass: 'direct' }); why.push('格上なので低い位置で構えて速攻'); }
     else if (gap < -5) { Object.assign(rec, { line: 'high', lose: 'counterpress', finish: 'work', pass: 'short' }); why.push('格下なので押し込んで崩し切る'); }
-    if (plan.style === 'press') { rec.pass = 'direct'; rec.win = 'counter'; why.push('相手のハイプレスは長いボールで回避'); }
+    if (plan.style === 'press') {
+      if (gap > 0) { Object.assign(rec, { pass: 'direct', win: 'counter', vsPress: 'avoid', gk: 'long' }); why.push('相手のハイプレスはロングボールで回避し、裏を狙う'); }
+      else { Object.assign(rec, { vsPress: 'bait', shape: 'three', gk: 'short' }); why.push('相手のプレスは3枚で引きつけて剥がせる'); }
+    }
+    if (plan.style === 'counter' || plan.ment === 'def') { rec.shape = 'sbIn'; why.push('引いた相手にはSBを内側に入れて中央を厚く'); }
     if (plan.style === 'counter') { rec.line = 'mid'; rec.lose = 'counterpress'; why.push('相手の速攻に備えて即時奪回'); }
     if (plan.style === 'pos') { rec.prs = 'high'; why.push('保持型の相手には前から圧力'); }
     const cond = plan.cond;
@@ -598,22 +602,47 @@
     if (ti.line === 'high' && !ps.some(x => x.s === 'CB' && has(x, 'スピード'))) w.push('CBに快足がいない。高いラインの裏を突かれやすい（スイーパーGKで軽減）');
     if (ti.finish === 'cross' && !ps.some(x => ['ST', 'CB'].includes(x.s) && has(x, '空中戦'))) w.push('空中戦に強い選手が前線にいない。クロス攻撃の効果は薄い');
     if (ti.prs === 'high' && ti.lose === 'counterpress' && ti.tempo === 'fast') w.push('消耗が非常に激しい。60分過ぎから足が止まる');
+    const passers = ps.filter(x => ['GK', 'CB', 'DM'].includes(x.s) && has(x, 'パス')).length;
+    if ((ti.gk === 'short' || ti.vsPress === 'bait') && passers === 0) w.push('最終ラインに配球の得意な選手がいない。つなぐビルドアップはプレスで奪われやすい');
+    if (ti.shape === 'three' && !ps.some(x => x.s === 'DM')) w.push('DMFがいないので、3枚化はCMFが下りる形になり効果が薄い');
+    if (ti.route === 'long' && !ps.some(x => x.s === 'ST' && has(x, '空中戦'))) w.push('ロングボールの受け手に空中戦の強いCFがいない');
+    if (ti.route === 'left' || ti.route === 'right') { const sl = ti.route === 'left' ? ['LB', 'LWB', 'LM', 'LW'] : ['RB', 'RWB', 'RM', 'RW']; if (!ps.some(x => sl.includes(x.s))) w.push('攻める側のサイドに選手が配置されていない'); }
+    if (ti.hub) { const h = ps.find(x => x.p.id === ti.hub); if (!h) w.push('起点に指定した選手がピッチにいない'); }
     if (ti.tackle === 'hard') w.push('激しいタックルは警告・PKのリスクが上がる');
     if (ti.pass === 'short' && ti.tempo === 'fast') w.push('ショートパスで速いテンポは相手陣で奪われやすい（保持はやや増える）');
     return w;
+  }
+  function T0() { return live.sim.teams[live.sim.userSide]; }
+  // 攻撃ルートの内訳と、どこを突くべきかの分析
+  function routeHTML(sim, side, withEdge) {
+    const r = sim.teams[side].stats.route || { L: 0, C: 0, R: 0, G: 0 };
+    const tot = r.L + r.C + r.R + r.G;
+    const col = { L: 'var(--ai)', C: 'var(--good)', R: 'var(--warn)', G: 'var(--ink-3)' };
+    const lab = { L: '左', C: '中央', R: '右', G: 'ロング' };
+    const bar = tot ? `<div class="routebar">${['L', 'C', 'R', 'G'].map(k => `<i style="width:${r[k] / tot * 100}%;background:${col[k]}"></i>`).join('')}</div><div class="small muted">${['L', 'C', 'R', 'G'].map(k => `<span style="color:${col[k]}">■</span>${lab[k]} ${Math.round(r[k] / tot * 100)}%`).join('　')}</div>` : '<div class="small muted">まだシュートまで行けていない</div>';
+    let edge = '';
+    if (withEdge) {
+      const ed = sim.routeEdges(side), avg = (ed.L + ed.C + ed.R) / 3;
+      const best = ['L', 'C', 'R'].sort((a, b) => ed[b] - ed[a])[0];
+      const lost = sim.teams[side].stats.lost || 0;
+      edge = `<div class="small" style="margin-top:4px">分析：${{ L: '左サイド', C: '中央', R: '右サイド' }[best]}から攻めると優位（相手との差 ${ed[best] - avg >= 0 ? '+' : ''}${(ed[best] - avg).toFixed(1)}）。ロングボールの競り合い ${ed.G >= 0 ? '有利' : '不利'}${lost ? ` ・ ビルドアップでのロスト ${lost}回` : ''}</div>`;
+    }
+    return bar + edge;
   }
   function tiCard(S, mode) {
     const lv = mode === 'live';
     const ti = lv ? Object.assign({}, E.TI_DEFAULT, live.sim.teams[live.sim.userSide].spec.ti) : Object.assign({}, E.TI_DEFAULT, S.ti);
     const act = lv ? 'live-ti' : 'ti';
-    const groups = ['攻撃', '守備', '切替'];
+    const groups = ['ビルド', '攻撃', '守備', '切替'];
     const row = k => `<div class="tirow"><span>${E.TI[k].name}</span><div class="seg">${Object.entries(E.TI[k].opts).map(([v, l]) => `<button data-act="${act}" data-k="${k}" data-v="${v}" aria-pressed="${ti[k] === v}">${l}</button>`).join('')}</div></div>`;
-    const preset = Object.entries(E.TI_PRESETS).find(([, p]) => Object.keys(E.TI_DEFAULT).every(k => p.ti[k] === ti[k]));
-    const T = lv ? live.sim.teams[live.sim.userSide] : null;
+    const preset = Object.entries(E.TI_PRESETS).find(([, p]) => Object.keys(p.ti).every(k => p.ti[k] === ti[k]));
+    const cands = lv ? T0().onPitch.filter(e => !e.sent && e.slot !== 'GK').map(e => [e.p, e.slot]) : S.xi.map((id, i) => [G.player(id), G.slotsOf()[i]]).filter(x => x[0] && x[1] !== 'GK');
+    const hubRow = `<div class="tirow"><span>起点の選手</span><select class="tisel" data-hub="${lv ? 'live' : 'pre'}" aria-label="ボールを集める選手"><option value="">指定しない</option>${cands.map(([p, sl]) => `<option value="${p.id}" ${ti.hub === p.id ? 'selected' : ''}>${E.SLOT_LABEL[sl]} ${esc(p.name)}${(p.traits || []).includes('パス') ? ' ◎' : ''}</option>`).join('')}</select></div>`;
+    const T = lv ? T0() : null;
     const warn = lv ? tiWarn(ti, T.onPitch.filter(e => !e.sent).map(e => e.p), T.onPitch.filter(e => !e.sent).map(e => e.slot)) : tiWarn(ti, S.xi, G.slotsOf());
     const adv = lv ? null : tiAdvice(S);
     const body = `<div class="row" style="gap:6px;margin-bottom:10px"><span class="small muted">プリセット</span>${Object.entries(E.TI_PRESETS).map(([k, p]) => `<button class="btn sm" data-act="${act}-preset" data-v="${k}" aria-pressed="${preset && preset[0] === k}">${p.name}</button>`).join('')}<button class="btn sm" data-act="${act}-preset" data-v="">標準に戻す</button></div>
-      ${groups.map(g => `<div class="tigroup"><div class="eyebrow">${g === '切替' ? '切り替え' : g + '時'}</div>${Object.keys(E.TI).filter(k => E.TI[k].group === g).map(row).join('')}</div>`).join('')}
+      ${groups.map(g => `<div class="tigroup"><div class="eyebrow">${g === '切替' ? '切り替え' : g === 'ビルド' ? 'ビルドアップ' : g + '時'}</div>${Object.keys(E.TI).filter(k => E.TI[k].group === g).map(row).join('')}${g === 'ビルド' ? hubRow : ''}</div>`).join('')}
       ${warn.length ? `<div class="small" style="margin-top:8px;display:grid;gap:2px">${warn.map(x => `<div><span class="chip warn">注意</span> ${esc(x)}</div>`).join('')}</div>` : ''}
       ${adv && adv.why.length ? `<div class="small" style="margin-top:10px"><b>分析担当（${esc(adv.opp)}戦）：</b>${esc(adv.why.join('。'))}。<br><span class="muted">${Object.entries(adv.rec).map(([k, v]) => `${E.TI[k].name}「${E.TI[k].opts[v]}」`).join('、')}</span> <button class="btn sm" data-act="ti-advice">提案を反映</button></div>` : ''}`;
     if (lv) return `<details class="tidetails"${live.tiOpen ? ' open' : ''}><summary class="eyebrow" style="cursor:pointer;margin:12px 0 6px" data-act="live-ti-toggle">チーム指示${preset ? ` <span class="chip ai">${E.TI_PRESETS[preset[0]].name}</span>` : ''}</summary>${body}</details>`;
@@ -1093,6 +1122,8 @@
           <div class="seg">${Object.entries(E.MENT).map(([k, l]) => `<button data-act="live-ment" data-v="${k}" aria-pressed="${T.spec.tactics.ment === k}">${l}</button>`).join('')}</div>
           <div class="eyebrow" style="margin:12px 0 6px">スタイル</div>
           <div class="seg">${Object.entries(E.STYLE).map(([k, l]) => `<button data-act="live-style" data-v="${k}" aria-pressed="${T.spec.tactics.style === k}">${l}</button>`).join('')}</div>
+          <div class="eyebrow" style="margin:12px 0 2px">攻撃ルート</div>
+          ${routeHTML(sim, us, true)}
           ${tiCard(G.state(), 'live')}
           <div class="eyebrow" style="margin:12px 0 6px">ピッチ上の状態</div>
           <div class="onpitch">${T.onPitch.map((e, i) => { const st = Math.round(e.stamina); return `<div class="op ${e.sent ? 'out' : ''}"><span class="num muted">${E.SLOT_LABEL[e.slot]}</span><span>${esc(e.p.name)}${e.yc ? ' <span class="chip">警告</span>' : ''}${e.injured ? ' <span class="chip bad">負傷</span>' : ''}${e.sent ? ' 退場' : ''}${e.style ? ` <span class="chip">${E.PSTYLE[e.style].name}</span>` : ''}${e.instr ? ` <span class="chip ai">${E.INSTR[e.instr].name}</span>` : ''}</span><span class="stm"><i class="${st < 45 ? 'low' : st < 65 ? 'mid' : ''}" style="width:${st}%"></i></span><span class="num">${Math.round(sim.eff(e))}</span></div>`; }).join('')}</div>
@@ -1108,6 +1139,7 @@
     const fifaLine = rec.fifa ? `FIFAポイント ${rec.fifa > 0 ? '+' : ''}${rec.fifa}` : '';
     return `<section class="card" style="margin-top:14px"><h2>${title}<span class="sub">協会評価 ${rec.board >= 0 ? '+' : ''}${rec.board} ・ ${fifaLine} ・ MOM ${esc(rec.motm)}</span></h2>${rec.travel ? `<p class="small muted" style="margin:0 0 8px">${esc(rec.travel)}</p>` : ''}${rec.att ? `<p class="small muted" style="margin:0 0 8px">${esc(rec.att.stadium)} 観衆 ${rec.att.n.toLocaleString()}人</p>` : ''}
       ${md ? `<div class="media" style="margin-bottom:12px"><div class="headline"><span class="outlet">${esc(md.outlet)}</span><b>${esc(md.head)}</b></div><div class="sns">${md.comments.map(c => `<div>${esc(c)}</div>`).join('')}</div><p class="small muted" style="margin:6px 0 0">世論 ${md.fansD >= 0 ? '+' : ''}${md.fansD} ・ 士気 ${md.moraleD >= 0 ? '+' : ''}${md.moraleD}</p></div>` : ''}
+      <div class="grid g2" style="margin-bottom:12px"><div><div class="eyebrow">日本の攻撃ルート</div>${routeHTML(sim, us, false)}</div><div><div class="eyebrow">${esc(sim.teams[1 - us].spec.name)}の攻撃ルート</div>${routeHTML(sim, 1 - us, false)}</div></div>
       <div class="tbl-wrap"><table><thead><tr><th>選手</th><th>位置</th><th>出場</th><th>得点</th><th>A</th><th>評価</th></tr></thead><tbody>
       ${ps.map(x => `<tr><td>${esc(x.name)}${x.injured ? ' <span class="chip bad">負傷</span>' : ''}${x.red ? ' <span class="chip bad">退場</span>' : ''}</td><td class="small">${E.SLOT_LABEL[x.slot]}</td><td class="num">${x.minutes}'</td><td class="num">${x.goals || ''}</td><td class="num">${x.assists || ''}</td><td><span class="rt ${x.rating >= 7.5 ? 'hi' : x.rating < 5.8 ? 'lo' : ''}">${x.rating.toFixed(1)}</span></td></tr>`).join('')}
       </tbody></table></div></section>`;
@@ -1273,10 +1305,10 @@
       toast(d.v ? `スタイル：${E.PSTYLE[d.v].name}` : 'プレースタイルを標準にした');
     },
     ti(d) { const S = G.state(); S.ti[d.k] = d.v; G.save(); render(); },
-    'ti-preset'(d) { const S = G.state(); S.ti = Object.assign({}, E.TI_DEFAULT, d.v ? E.TI_PRESETS[d.v].ti : {}); G.save(); render(); toast(d.v ? `プリセット「${E.TI_PRESETS[d.v].name}」` : 'チーム指示を標準に戻した'); },
+    'ti-preset'(d) { const S = G.state(); S.ti = Object.assign({}, E.TI_DEFAULT, d.v ? E.TI_PRESETS[d.v].ti : {}, { hub: S.ti.hub || null }); G.save(); render(); toast(d.v ? `プリセット「${E.TI_PRESETS[d.v].name}」` : 'チーム指示を標準に戻した'); },
     'ti-advice'() { const S = G.state(); const a = tiAdvice(S); if (!a) return; Object.assign(S.ti, a.rec); G.save(); render(); toast('分析担当の提案を反映した'); },
     'live-ti'(d) { live.tiOpen = true; live.sim.setTI(live.sim.userSide, { [d.k]: d.v }); renderLive(); },
-    'live-ti-preset'(d) { live.tiOpen = true; live.sim.setTI(live.sim.userSide, Object.assign({}, E.TI_DEFAULT, d.v ? E.TI_PRESETS[d.v].ti : {})); renderLive(); toast(d.v ? `プリセット「${E.TI_PRESETS[d.v].name}」` : 'チーム指示を標準に戻した'); },
+    'live-ti-preset'(d) { live.tiOpen = true; live.sim.setTI(live.sim.userSide, Object.assign({}, E.TI_DEFAULT, d.v ? E.TI_PRESETS[d.v].ti : {}, { hub: T0().spec.ti && T0().spec.ti.hub || null })); renderLive(); toast(d.v ? `プリセット「${E.TI_PRESETS[d.v].name}」` : 'チーム指示を標準に戻した'); },
     'live-ti-toggle'() { live.tiOpen = !live.tiOpen; },
     task(d) { ui.modal = { type: d.v }; renderModal(); },
     'live-form'(d) {
@@ -1434,6 +1466,9 @@
   document.addEventListener('change', ev => {
     const ik = ev.target.dataset && ev.target.dataset.ins;
     if (ik) { const S = G.state(); if (ev.target.value) S.instr[ik] = ev.target.value; else delete S.instr[ik]; G.save(); render(); toast('個別指示を設定した'); return; }
+    const hb = ev.target.dataset && ev.target.dataset.hub;
+    if (hb === 'pre') { const S = G.state(); S.ti.hub = ev.target.value || null; G.save(); render(); toast(ev.target.value ? `起点：${G.player(ev.target.value).name}` : '起点の指定を解除した'); return; }
+    if (hb === 'live') { live.tiOpen = true; live.sim.setTI(live.sim.userSide, { hub: ev.target.value || null }); renderLive(); return; }
     const pk = ev.target.dataset && ev.target.dataset.pst;
     if (pk) { const S = G.state(); if (ev.target.value) S.pstyle[pk] = ev.target.value; else delete S.pstyle[pk]; G.save(); render(); toast('プレースタイルを設定した'); return; }
     const ck = ev.target.dataset && ev.target.dataset.cap;

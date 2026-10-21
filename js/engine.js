@@ -55,6 +55,13 @@
   };
   const SHOOT_W = { GK: 0, CB: 0.25, LB: 0.4, RB: 0.4, LWB: 0.6, RWB: 0.6, DM: 0.4, CM: 0.9, AM: 2, LM: 1.4, RM: 1.4, LW: 2, RW: 2, ST: 3.2 };
   const ASSIST_W = { GK: 0.05, CB: 0.3, LB: 1, RB: 1, LWB: 1.2, RWB: 1.2, DM: 0.8, CM: 1.6, AM: 2.2, LM: 1.6, RM: 1.6, LW: 2, RW: 2, ST: 1 };
+  const ROUTE_SLOTS = { L: ['LB', 'LWB', 'LM', 'LW'], R: ['RB', 'RWB', 'RM', 'RW'], C: ['CM', 'AM', 'ST'] };
+  function routeW(route, slot, shoot) {
+    if (!route) return 1;
+    if (route === 'G') return slot === 'ST' ? 1.8 : (shoot ? 0.8 : (['LW', 'RW', 'AM'].includes(slot) ? 1.3 : 0.9));
+    if (ROUTE_SLOTS[route].includes(slot)) return shoot ? 1.5 : 1.9;
+    return route === 'C' ? 0.85 : 1;
+  }
   const WIDE = ['LB', 'RB', 'LWB', 'RWB', 'LM', 'RM', 'LW', 'RW'], CENTRE = ['CM', 'AM', 'DM', 'ST'];
   const HEAD_W = { GK: 0, CB: 2.5, LB: 0.4, RB: 0.4, LWB: 0.4, RWB: 0.4, DM: 1, CM: 0.6, AM: 0.4, LM: 0.4, RM: 0.4, LW: 0.4, RW: 0.4, ST: 2 };
   const DEF_W = { GK: 0.1, CB: 2, LB: 1.5, RB: 1.5, LWB: 1.3, RWB: 1.3, DM: 2, CM: 1.2, AM: 0.6, LM: 0.8, RM: 0.8, LW: 0.5, RW: 0.5, ST: 0.5 };
@@ -107,6 +114,10 @@
 
   // チーム指示：攻撃時・守備時・切り替え時
   const TI = {
+    gk: { name: 'GKからの配球', group: 'ビルド', opts: { short: 'つなぐ', normal: '標準', long: '前線へ蹴る' } },
+    shape: { name: '組み立ての形', group: 'ビルド', opts: { normal: '2CB', three: 'ボランチが落ちて3枚', sbIn: 'SBが内側へ' } },
+    route: { name: '前進ルート', group: 'ビルド', opts: { mixed: 'バランス', left: '左から', center: '中央から', right: '右から', long: 'ロングボール' } },
+    vsPress: { name: '相手のプレスには', group: 'ビルド', opts: { avoid: '蹴って回避', normal: '標準', bait: '引きつけて剥がす' } },
     tempo: { name: 'テンポ', group: '攻撃', opts: { slow: '遅攻', normal: '標準', fast: '速い' } },
     width: { name: '攻撃の幅', group: '攻撃', opts: { narrow: '中央', normal: '標準', wide: 'サイド' } },
     pass: { name: 'パス', group: '攻撃', opts: { short: 'ショート', mixed: '混合', direct: 'ロング' } },
@@ -118,24 +129,41 @@
     win: { name: 'ボールを奪ったら', group: '切替', opts: { hold: '落ち着かせる', normal: '標準', counter: '速攻' } },
     waste: { name: 'リード時の時間稼ぎ', group: '切替', opts: { off: 'しない', on: 'する' } }
   };
-  const TI_DEFAULT = { tempo: 'normal', width: 'normal', pass: 'mixed', finish: 'mixed', line: 'mid', prs: 'mid', tackle: 'normal', lose: 'normal', win: 'normal', waste: 'off' };
+  const TI_DEFAULT = { gk: 'normal', shape: 'normal', route: 'mixed', vsPress: 'normal', hub: null, tempo: 'normal', width: 'normal', pass: 'mixed', finish: 'mixed', line: 'mid', prs: 'mid', tackle: 'normal', lose: 'normal', win: 'normal', waste: 'off' };
   const TI_PRESETS = {
-    possession: { name: 'ポゼッション', ti: { tempo: 'slow', width: 'wide', pass: 'short', finish: 'work', line: 'high', prs: 'mid', tackle: 'normal', lose: 'counterpress', win: 'hold', waste: 'off' } },
-    counter: { name: '堅守速攻', ti: { tempo: 'fast', width: 'normal', pass: 'direct', finish: 'mixed', line: 'low', prs: 'low', tackle: 'normal', lose: 'regroup', win: 'counter', waste: 'on' } },
-    gegen: { name: 'ハイプレス', ti: { tempo: 'fast', width: 'normal', pass: 'mixed', finish: 'mixed', line: 'high', prs: 'high', tackle: 'hard', lose: 'counterpress', win: 'counter', waste: 'off' } },
-    wing: { name: 'サイド攻撃', ti: { tempo: 'normal', width: 'wide', pass: 'mixed', finish: 'cross', line: 'mid', prs: 'mid', tackle: 'normal', lose: 'normal', win: 'normal', waste: 'off' } },
-    park: { name: '逃げ切り', ti: { tempo: 'slow', width: 'narrow', pass: 'mixed', finish: 'mixed', line: 'low', prs: 'low', tackle: 'normal', lose: 'regroup', win: 'hold', waste: 'on' } }
+    possession: { name: 'ポゼッション', ti: { gk: 'short', shape: 'three', route: 'mixed', vsPress: 'bait', tempo: 'slow', width: 'wide', pass: 'short', finish: 'work', line: 'high', prs: 'mid', tackle: 'normal', lose: 'counterpress', win: 'hold', waste: 'off' } },
+    counter: { name: '堅守速攻', ti: { gk: 'long', shape: 'normal', route: 'long', vsPress: 'avoid', tempo: 'fast', width: 'normal', pass: 'direct', finish: 'mixed', line: 'low', prs: 'low', tackle: 'normal', lose: 'regroup', win: 'counter', waste: 'on' } },
+    gegen: { name: 'ハイプレス', ti: { gk: 'normal', shape: 'normal', route: 'mixed', vsPress: 'normal', tempo: 'fast', width: 'normal', pass: 'mixed', finish: 'mixed', line: 'high', prs: 'high', tackle: 'hard', lose: 'counterpress', win: 'counter', waste: 'off' } },
+    wing: { name: 'サイド攻撃', ti: { gk: 'normal', shape: 'normal', route: 'mixed', vsPress: 'normal', tempo: 'normal', width: 'wide', pass: 'mixed', finish: 'cross', line: 'mid', prs: 'mid', tackle: 'normal', lose: 'normal', win: 'normal', waste: 'off' } },
+    park: { name: '逃げ切り', ti: { gk: 'long', shape: 'normal', route: 'long', vsPress: 'avoid', tempo: 'slow', width: 'narrow', pass: 'mixed', finish: 'mixed', line: 'low', prs: 'low', tackle: 'normal', lose: 'regroup', win: 'hold', waste: 'on' } }
   };
   // 指示を数値に変換。ctx: { lead, minute, oppFast }
   function tiMods(ti) {
     const t = Object.assign({}, TI_DEFAULT, ti || {});
     const m = { poss: 0, rate: 1, q: 1, oRate: 1, oQ: 1, drain: 1, card: 1, oPen: 1, corner: 1, counterQ: 1, att: 0, mid: 0, def: 0, wide: 1, centre: 1, head: 1, ti: t };
+    m.route = { L: 1, C: 1, R: 1, G: 0.35 };
+    if (t.gk === 'short') { m.poss += 0.015; m.risk = 1.3; }
+    if (t.gk === 'long') { m.poss -= 0.02; m.route.G *= 1.8; m.head *= 1.15; m.risk = 0.3; }
+    if (t.shape === 'three') { m.def += 0.3; m.mid += 0.3; m.att -= 0.3; m.poss += 0.01; m.riskMul = 0.75; }
+    if (t.shape === 'sbIn') { m.mid += 0.5; m.wide *= 0.85; m.oQ *= 1.04; m.route.C *= 1.25; m.poss += 0.01; }
+    if (t.route === 'left') m.route.L *= 2.4;
+    if (t.route === 'right') m.route.R *= 2.4;
+    if (t.route === 'center') m.route.C *= 2.4;
+    if (t.route === 'long') { m.route.G *= 3.5; m.poss -= 0.03; m.head *= 1.3; }
+    if (t.vsPress === 'avoid') { m.risk = (m.risk == null ? 1 : m.risk) * 0.3; m.route.G *= 1.5; }
+    if (t.vsPress === 'bait') { m.risk = (m.risk == null ? 1 : m.risk) * 1.4; m.bait = true; }
+    if (m.risk == null) m.risk = 1;
+    if (m.riskMul) m.risk *= m.riskMul;
     if (t.tempo === 'slow') { m.poss += 0.02; m.rate *= 0.94; m.q *= 1.04; m.drain *= 0.96; }
     if (t.tempo === 'fast') { m.poss -= 0.02; m.rate *= 1.07; m.q *= 0.97; m.drain *= 1.06; }
     if (t.width === 'narrow') { m.def += 0.6; m.att -= 0.3; m.centre = 1.25; m.wide = 0.8; m.corner *= 0.9; }
     if (t.width === 'wide') { m.att += 0.5; m.def -= 0.4; m.wide = 1.3; m.centre = 0.9; m.corner *= 1.12; m.drain *= 1.02; }
     if (t.pass === 'short') { m.poss += 0.03; m.q *= 1.03; m.rate *= 0.97; }
-    if (t.pass === 'direct') { m.poss -= 0.035; m.rate *= 1.05; m.q *= 0.95; m.head *= 1.3; }
+    if (t.pass === 'direct') { m.poss -= 0.035; m.rate *= 1.05; m.q *= 0.95; m.head *= 1.3; m.route.G *= 1.6; m.risk *= 0.6; }
+    if (t.pass === 'short') m.risk *= 1.1;
+    if (t.width === 'wide') { m.route.L *= 1.3; m.route.R *= 1.3; }
+    if (t.width === 'narrow') m.route.C *= 1.4;
+    if (t.finish === 'cross') { m.route.L *= 1.2; m.route.R *= 1.2; }
     if (t.finish === 'work') { m.rate *= 0.86; m.q *= 1.14; }
     if (t.finish === 'shoot') { m.rate *= 1.16; m.q *= 0.83; m.corner *= 1.06; }
     if (t.finish === 'cross') { m.rate *= 1.04; m.q *= 0.93; m.wide *= 1.35; m.head *= 1.8; m.corner *= 1.15; }
@@ -233,7 +261,7 @@
         out: [],
         subsLeft: 5,
         dayForm: normal(1.2),
-        stats: { shots: 0, sot: 0, xg: 0, corners: 0, fouls: 0, yellow: 0, red: 0, saves: 0 },
+        stats: { shots: 0, sot: 0, xg: 0, corners: 0, fouls: 0, yellow: 0, red: 0, saves: 0, lost: 0, route: { L: 0, C: 0, R: 0, G: 0 } },
         menDown: 0
       };
     }
@@ -301,7 +329,69 @@
       if (tm.ti.prs === 'high' && this.minute > 65) L.mid -= 1.2;
       if (tm.ti.pass === 'short' && (wx === '大雨' || wx === '雪' || pt === '荒れ')) L.mid -= 0.8;
       if (tm.ti.pass === 'direct' && (wx === '強風')) L.att -= 0.6;
+      // 相手のプレスへの対応：蹴って回避すればプレスの効果を消せる
+      if (opp && this.pressing(opp)) {
+        if (tm.ti.vsPress === 'avoid' || tm.ti.gk === 'long') L.mid += 0.8;
+        if (tm.ti.shape === 'three') L.mid += 0.4;
+      }
+      // 起点の選手
+      const hub = tm.ti.hub && t.onPitch.find(e => e.p.id === tm.ti.hub && !e.sent);
+      if (hub && (has(hub.p, 'パス') || hub.p.ovr >= 82)) L.mid += 0.5;
       return L;
+    }
+
+    pressing(t) { return t.spec.tactics.style === 'press' || this.tm(t).ti.prs === 'high'; }
+
+    // 攻撃ルートごとの優位：こちらのサイドの攻撃陣と、そこを守る相手の比較
+    routeEdges(side) {
+      const X = this.teams[side], Y = this.teams[1 - side];
+      const avg = (t, slots) => { const a = this.active(t).filter(e => slots.includes(e.slot)); return a.length ? a.reduce((s, e) => s + this.eff(e), 0) / a.length : 60; };
+      return {
+        L: avg(X, ROUTE_SLOTS.L) - avg(Y, ['RB', 'RWB', 'RM', 'RW']),
+        C: avg(X, ROUTE_SLOTS.C) - avg(Y, ['CB', 'DM']),
+        R: avg(X, ROUTE_SLOTS.R) - avg(Y, ['LB', 'LWB', 'LM', 'LW']),
+        G: avg(X, ['ST']) * (this.active(X).some(e => e.slot === 'ST' && has(e.p, '空中戦')) ? 1.04 : 1) - avg(Y, ['CB']) * (this.active(Y).filter(e => e.slot === 'CB' && has(e.p, '空中戦')).length >= 2 ? 1.04 : 1)
+      };
+    }
+    _route(X) {
+      const r = this.tm(X).route;
+      const hub = this.tm(X).ti.hub && this.active(X).find(e => e.p.id === this.tm(X).ti.hub);
+      const w = Object.assign({}, r);
+      if (hub) for (const k of ['L', 'C', 'R']) if (ROUTE_SLOTS[k].includes(hub.slot)) w[k] *= 1.3;
+      return pickW(['L', 'C', 'R', 'G'], k => w[k]);
+    }
+    // ビルドアップの流れを文章にする
+    _flow(X, route, sh, ast) {
+      const act = this.active(X), tm = this.tm(X), ti = tm.ti;
+      const nm = e => e.p.name;
+      const gk = act.find(e => e.slot === 'GK');
+      const cb = pickW(act.filter(e => e.slot === 'CB' || (ti.shape === 'three' && e.slot === 'DM')), () => 1);
+      const hub = ti.hub && act.find(e => e.p.id === ti.hub && e !== sh && e !== ast);
+      const mid = hub || pickW(act.filter(e => ['DM', 'CM', 'AM'].includes(e.slot) && e !== sh && e !== ast), e => this.eff(e));
+      const side = { L: '左サイド', R: '右サイド', C: '中央' }[route];
+      if (route === 'G') return `${gk && ti.gk === 'long' ? nm(gk) : cb ? nm(cb) : '最終ライン'}のロングボールを${ast && ast !== sh ? nm(ast) + 'が競り、' : ''}${nm(sh)}が前線で収める`;
+      const start = ti.gk === 'short' && gk ? `${nm(gk)}からつなぎ、` : '';
+      const chain = [cb, mid].filter(Boolean).map(nm).join('→');
+      return `${start}${chain ? chain + 'で前進し、' : ''}${side}${ast && ast !== sh ? 'の' + nm(ast) + 'から' : 'を'}${nm(sh)}へ`;
+    }
+    // プレスに引っかかってボールを失う
+    _turnover(X, Y, LX, LY) {
+      const tm = this.tm(X);
+      let risk = 0.0025 * tm.risk;
+      const act = this.active(X);
+      const ballers = act.filter(e => ['GK', 'CB', 'DM'].includes(e.slot) && has(e.p, 'パス')).length;
+      risk *= Math.max(0.5, 1 - ballers * 0.15);
+      if (tm.bait) {
+        if (LX.mid >= LY.mid + 1) { if (rnd() < risk * 2) { this.log(X.side, 'build', `相手のプレスを引きつけて剥がした！ ${X.spec.name}が一気に前進`); this._shot(X, Y, LX, LY, { boost: 1.35 }); } return; }
+      }
+      if (rnd() >= risk) return;
+      const cand = act.filter(e => ['GK', 'CB', 'DM', 'LB', 'RB'].includes(e.slot));
+      const loser = pickW(cand, e => has(e.p, 'パス') ? 0.5 : 1);
+      if (!loser) return;
+      loser.rating -= 0.4;
+      X.stats.lost = (X.stats.lost || 0) + 1;
+      this.log(X.side, 'build', `${loser.p.name}がビルドアップでプレスに捕まりボールを失う！`);
+      this._shot(Y, X, LY, LX, { boost: 1.8, route: 'C' });
     }
 
     // チーム指示の数値（キャッシュ）
@@ -313,7 +403,8 @@
       const X = this.teams[side];
       const before = Object.assign({}, TI_DEFAULT, X.spec.ti || {});
       X.spec.ti = Object.assign({}, before, ti);
-      const ch = Object.keys(ti).filter(k => before[k] !== X.spec.ti[k]).map(k => `${TI[k].name}「${TI[k].opts[X.spec.ti[k]]}」`);
+      const ch = Object.keys(ti).filter(k => TI[k] && before[k] !== X.spec.ti[k]).map(k => `${TI[k].name}「${TI[k].opts[X.spec.ti[k]]}」`);
+      if ('hub' in ti && ti.hub !== before.hub) { const h = X.onPitch.find(e => e.p.id === ti.hub); ch.push(h ? `起点を${h.p.name}に` : '起点の指定を解除'); }
       if (ch.length) this._note(side, `チーム指示を変更：${ch.join('、')}`);
     }
     setStyle(side, i, key) {
@@ -415,6 +506,7 @@
         if (wasting && TX.ti.waste === 'on') rate *= 0.85;
         if (wasting && TY.ti.waste === 'on') rate *= 0.9;
         if (rnd() < rate) this._shot(X, Y, LX, LY);
+        if (this.pressing(Y) && !(wasting && TX.ti.waste === 'on')) this._turnover(X, Y, LX, LY);
         if (rnd() < 0.05 * Math.sqrt(P[s] / 0.5) * TX.corner) this._setPiece(X, Y, LX, LY);
         if (rnd() < 0.0024 * Math.exp(0.02 * (LX.att - LY.def)) * TY.oPen) this._penalty(X, Y, LX, LY);
         let cr = 0.0155 * (xs.style === 'press' ? 1.2 : 1) * ((this.opts.ref && this.opts.ref.strict) || 1) * TX.card;
@@ -457,16 +549,16 @@
       }
     }
 
-    _pickShooter(X) {
-      const tm = this.tm(X);
-      return pickW(this.active(X), e => SHOOT_W[e.slot] * Math.pow(this.eff(e) / 75, 3) * (has(e.p, '決定力') ? 1.4 : 1) * (e.shootMul || 1)
+    _pickShooter(X, route) {
+      const tm = this.tm(X), hub = tm.ti.hub;
+      return pickW(this.active(X), e => SHOOT_W[e.slot] * routeW(route, e.slot, true) * (e.p.id === hub ? 1.1 : 1) * Math.pow(this.eff(e) / 75, 3) * (has(e.p, '決定力') ? 1.4 : 1) * (e.shootMul || 1)
         * (tm.head !== 1 && (e.slot === 'ST' || e.slot === 'CB') ? 1 + (tm.head - 1) * (has(e.p, '空中戦') ? 0.6 : 0.2) * (e.headMul || 1) : 1)
         * (WIDE.includes(e.slot) ? tm.wide : CENTRE.includes(e.slot) ? tm.centre : 1));
     }
-    _pickAssist(X, exclude) {
+    _pickAssist(X, exclude, route) {
       const c = this.active(X).filter(e => e !== exclude);
-      const tm = this.tm(X);
-      return pickW(c, e => ASSIST_W[e.slot] * Math.pow(this.eff(e) / 75, 2) * (has(e.p, 'パス') || has(e.p, 'クロス') || has(e.p, 'ドリブル') ? 1.35 : 1) * (e.assistMul || 1)
+      const tm = this.tm(X), hub = tm.ti.hub;
+      return pickW(c, e => ASSIST_W[e.slot] * routeW(route, e.slot, false) * (e.p.id === hub ? 1.5 : 1) * Math.pow(this.eff(e) / 75, 2) * (has(e.p, 'パス') || has(e.p, 'クロス') || has(e.p, 'ドリブル') ? 1.35 : 1) * (e.assistMul || 1)
         * (WIDE.includes(e.slot) ? tm.wide : CENTRE.includes(e.slot) ? tm.centre : 1));
     }
 
@@ -486,9 +578,13 @@
       this.teams[1 - X.side].onPitch.forEach(e => { if (!e.sent && (e.slot === 'GK' || SLOT_W[e.slot][0] >= 0.5)) e.rating -= 0.25; });
     }
 
-    _shot(X, Y, LX, LY) {
-      const sh = this._pickShooter(X);
+    _shot(X, Y, LX, LY, o) {
+      o = o || {};
+      const route = o.route || this._route(X);
+      const sh = this._pickShooter(X, route);
       if (!sh) return;
+      if (!X.stats.route) X.stats.route = { L: 0, C: 0, R: 0, G: 0 };
+      X.stats.route[route]++;
       const xs = X.spec.tactics, ys = Y.spec.tactics;
       let q = 0.09 * Math.exp(0.02 * (LX.att - LY.def) - 0.01 * (LY.gk - LX.att));
       if (this.opts.weather === '雨') q *= 1.05; else if (this.opts.weather === '大雨') q *= 1.08;
@@ -508,14 +604,21 @@
         const sw = this.active(Y).some(e => e.sweeper) ? 0.94 : 1;
         q *= fast * sw;
       }
-      q = clamp(q, 0.01, 0.45);
+      // ルートの優位（相手の弱いサイドを突く）
+      const ed = this.routeEdges(X.side);
+      const edge = route === 'G' ? ed.G - (ed.L + ed.C + ed.R) / 3 : ed[route] - (ed.L + ed.C + ed.R) / 3;
+      q *= clamp(1 + edge * 0.008, 0.88, 1.12);
+      if (route === 'G') q *= 0.92;
+      if (o.boost) q *= o.boost;
+      q = clamp(q, 0.01, 0.5);
       X.stats.shots++; X.stats.xg += q; sh.shots++;
       const name = sh.p.name;
       if (rnd() < q) {
         X.stats.sot++; sh.sot++;
         const how = pickW([['の右足シュート', 4], ['の左足シュート', 3], ['のヘディング', 1.5], ['が冷静に流し込む', 2], ['のミドルシュート', 1]], x => x[1])[0];
-        const ast = rnd() < 0.75 ? this._pickAssist(X, sh) : null;
-        this._goal(X, sh, ast, how);
+        const ast = rnd() < 0.75 ? this._pickAssist(X, sh, route) : null;
+        if (!o.boost && rnd() < 0.85) this.log(X.side, 'build', `流れ：${this._flow(X, route, sh, ast)}`);
+        this._goal(X, sh, ast, route === 'G' && rnd() < 0.5 ? 'が前線で競り勝ち、そのまま決める' : how);
       } else if (rnd() < 0.33) {
         X.stats.sot++; sh.sot++;
         const gk = this.active(Y).find(e => e.slot === 'GK');
@@ -825,5 +928,5 @@
     }
   }
 
-  root.SBEngine = { TI, TI_DEFAULT, TI_PRESETS, tiMods, PSTYLE, stylesFor, INSTR, ROLE_ALTS, ROLE_Y, layout, FORMATIONS, SLOT_LABEL, POS_LABEL, POS_GROUP, SLOT_FIT, SLOT_W, MENT, STYLE, fit, MatchSim, quickSim, setRandom, normal, poisson, pickW, clamp };
+  root.SBEngine = { ROUTE_SLOTS, TI, TI_DEFAULT, TI_PRESETS, tiMods, PSTYLE, stylesFor, INSTR, ROLE_ALTS, ROLE_Y, layout, FORMATIONS, SLOT_LABEL, POS_LABEL, POS_GROUP, SLOT_FIT, SLOT_W, MENT, STYLE, fit, MatchSim, quickSim, setRandom, normal, poisson, pickW, clamp };
 })(typeof window !== 'undefined' ? window : globalThis);
