@@ -1,0 +1,590 @@
+<script>
+(function () {
+  'use strict';
+
+  // ------------------------------------------------------------ 共通
+  var TITLES = { home: 'ホーム', mine: '自分の申請', form: '申請', detail: '申請の詳細', approvals: '承認', receipts: '受理', admin: '管理' };
+  var ICON = {
+    home: '<svg class="i" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/></svg>',
+    list: '<svg class="i" viewBox="0 0 24 24"><path d="M5 6.5h14M5 12h14M5 17.5h9"/></svg>',
+    stamp: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 12.3 2.4 2.4 4.8-5.2"/></svg>',
+    inbox: '<svg class="i" viewBox="0 0 24 24"><path d="M4 13.5V6.5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7"/><path d="M4 13.5h5l1.5 2.5h3l1.5-2.5h5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>',
+    gear: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+    chev: '<svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
+    pen: '<svg class="i" viewBox="0 0 24 24"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17z"/><path d="m13.5 6.5 3 3"/></svg>',
+    plus: '<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+    help: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7"/><path d="M12 17h.01"/></svg>',
+    info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
+    arrow: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+    back: '<svg class="i" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg>'
+  };
+
+  var B = null;              // bootstrap
+  var state = { formDef: null, adminTab: 'settings', adminOverview: null };
+  var $ = function (s, root) { return (root || document).querySelector(s); };
+  var $$ = function (s, root) { return Array.prototype.slice.call((root || document).querySelectorAll(s)); };
+  var esc = function (s) {
+    return String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  };
+  var attr = function (s) { return esc(s).replace(/`/g, '&#96;'); };
+
+  /** google.script.run を Promise 化。サーバーは {ok, data|error} を返す */
+  function call(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      var runner = google.script.run
+        .withSuccessHandler(function (res) {
+          if (res && res.ok === false) reject(new Error(res.error || 'エラーが発生しました'));
+          else resolve(res ? res.data : null);
+        })
+        .withFailureHandler(function (err) { reject(err instanceof Error ? err : new Error(String(err && err.message || err))); });
+      runner[fn].apply(runner, args);
+    });
+  }
+
+  function toast(msg, err) {
+    var t = $('#toast');
+    t.textContent = msg; t.className = 'toast on' + (err ? ' err' : '');
+    clearTimeout(t._t); t._t = setTimeout(function () { t.className = 'toast'; }, err ? 4500 : 2600);
+  }
+  function fail(e) { toast((e && e.message) || String(e), true); }
+
+  function modal(title, bodyHtml, actions) {
+    $('#modal-title').textContent = title;
+    $('#modal-body').innerHTML = bodyHtml;
+    var box = $('#modal-actions');
+    box.innerHTML = '';
+    actions.forEach(function (a) {
+      var b = document.createElement('button');
+      b.className = 'btn ' + (a.cls || '');
+      b.innerHTML = a.label;
+      b.onclick = function () { var r = a.onClick ? a.onClick(b) : true; if (r !== false) closeModal(); };
+      box.appendChild(b);
+    });
+    $('#modal').hidden = false;
+    var first = $('#modal-body textarea, #modal-body input');
+    if (first) setTimeout(function () { first.focus(); }, 50);
+  }
+  function closeModal() { $('#modal').hidden = true; }
+  $('#modal').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
+
+  function fmt(s) { return String(s || '').replace(/:\d\d$/, ''); }
+
+  // ------------------------------------------------------------ 起動・骨格
+  var app = $('#app');
+  var view = 'home', viewArg = null;
+
+  function init() {
+    call('apiBootstrap').then(function (boot) {
+      B = boot;
+      app.innerHTML = shell();
+      bindShell();
+      var initialPage = app.getAttribute('data-initial-page'), initialId = app.getAttribute('data-initial-id');
+      var h = location.hash.replace(/^#/, '');
+      if (initialPage === 'detail' && initialId && !h) go('detail', initialId);
+      else if (h) { var p = h.split('/'); go(p[0], p[1] ? decodeURIComponent(p[1]) : null); }
+      else go('home');
+    }).catch(function (e) {
+      $('#boot').innerHTML = '<div class="note err" style="max-width:520px;margin:40px auto">' + esc(e.message || e) +
+        '<br><br>管理者がセットアップ（setup 関数の実行）を済ませているか、Google Workspace のアカウントでログインしているかを確認してください。</div>';
+    });
+  }
+
+  function navItems() {
+    var nav = [['home', 'ホーム', ICON.home], ['mine', '自分の申請', ICON.list, B.counts.myOpen]];
+    if (B.flags.approver) nav.push(['approvals', '承認', ICON.stamp, B.counts.pendingApprovals]);
+    if (B.flags.receiver) nav.push(['receipts', '受理', ICON.inbox, B.counts.pendingReceipts]);
+    if (B.flags.admin) nav.push(['admin', '管理', ICON.gear]);
+    return nav;
+  }
+
+  function navHtml() {
+    var nav = navItems();
+    var mobile = [nav[0], nav[1], ['cta', '申請する', ICON.plus]].concat(nav.slice(2, 4));
+    return '<nav class="nav" id="nav">' + mobile.map(function (n) {
+      if (n[0] === 'cta') return '<button class="primary" data-go="home"><span class="disc">' + n[2] + '</span><span>' + n[1] + '</span></button>';
+      return '<button data-v="' + n[0] + '" data-go="' + n[0] + '">' + n[2] + '<span>' + n[1] + '</span>' + (n[3] ? '<span class="n">' + n[3] + '</span>' : '') + '</button>';
+    }).join('') + '</nav>';
+  }
+
+  function sideItemsHtml() {
+    return navItems().map(function (n) {
+      return '<button class="item" data-v="' + n[0] + '" data-go="' + n[0] + '">' + n[2] + esc(n[1]) + (n[3] ? '<span class="n">' + n[3] + '</span>' : '') + '</button>';
+    }).join('');
+  }
+
+  function shell() {
+    var initial = (B.user.name || '?').trim().charAt(0) || '?';
+    var logo = '<svg viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#ff5c8a"/><stop offset=".35" stop-color="#ffd84a"/><stop offset=".7" stop-color="#5ed28a"/><stop offset="1" stop-color="#8f7df5"/></linearGradient></defs><path d="M20 5 36 33H4z" fill="none" stroke="url(#g)" stroke-width="6" stroke-linejoin="round"/></svg>';
+    return '' +
+      '<aside class="side">' +
+        '<div class="brand">' + logo + '<div><b>申請</b><small>APPX</small></div></div>' +
+        '<button class="cta" data-go="home">' + ICON.pen + '申請する</button>' +
+        '<div id="side-items">' + sideItemsHtml() + '</div>' +
+        '<div class="me"><div class="avatar">' + esc(initial) + '</div><div><b>' + esc(B.user.name) + '</b>' +
+          (B.user.dept ? '<span>' + esc(B.user.dept) + '</span>' : '') + '<span>' + esc(B.user.roles.filter(function (r) { return r !== '一般申請者'; }).join('・') || '一般申請者') + '</span></div></div>' +
+      '</aside>' +
+      (B.mode === 'TEST' ? '<div class="testband">テスト運用中（通知は ' + esc(B.testNotifyEmail) + ' へ集約・データは _TEST シート）</div>' : '') +
+      '<header class="top"><h1 id="pageTitle">ホーム</h1><button class="icnbtn" id="helpBtn" title="使い方">' + ICON.help + '</button>' +
+        '<div class="avatar">' + esc(initial) + '</div><span class="who">' + esc(B.user.name) + '</span></header>' +
+      navHtml() +
+      '<main><div class="inner" id="main"></div></main>';
+  }
+
+  function bindShell() {
+    app.addEventListener('click', function (e) {
+      var t = e.target.closest('[data-go]');
+      if (t && app.contains(t)) { e.preventDefault(); go(t.getAttribute('data-go'), t.getAttribute('data-arg')); }
+    });
+    $('#helpBtn').onclick = showHelp;
+  }
+
+  function showHelp() {
+    modal('使い方', '<div class="muted" style="font-size:14px;line-height:1.8">' +
+      '<b>申請する</b>: ホームで申請の種類を選び、内容と上長を入力して送信します。<br>' +
+      '<b>承認の流れ</b>: 上長 → 常務（不在時は代理承認者）→ 総務課・社長が受理。各段階の押印欄に「済」が付きます。<br>' +
+      '<b>通知</b>: 承認依頼や進捗は Google Chat のダイレクトメッセージで届きます。Chat でこのアプリに一度話しかけると通知先が登録されます。<br>' +
+      '<b>取下げ</b>: 上長の承認前であれば、詳細画面から申請を取り下げられます。</div>', [{ label: '閉じる', cls: 'ghost' }]);
+  }
+
+  function refreshCounts() {
+    return call('apiBootstrap').then(function (boot) {
+      B = boot;
+      var nav = $('#nav'); if (nav) nav.outerHTML = navHtml();
+      var side = $('#side-items'); if (side) side.innerHTML = sideItemsHtml();
+      markNav();
+    }).catch(function () {});
+  }
+
+  function markNav() {
+    $$('[data-v]').forEach(function (b) {
+      var v = b.getAttribute('data-v');
+      b.classList.toggle('on', v === view || (view === 'form' && v === 'home') || (view === 'detail' && v === 'mine'));
+    });
+  }
+
+  var VIEWS = {};
+  function go(v, arg) {
+    if (!VIEWS[v]) v = 'home';
+    view = v; viewArg = arg || null;
+    var hash = v + (arg ? '/' + encodeURIComponent(arg) : '');
+    if (location.hash.replace(/^#/, '') !== hash) history.replaceState(null, '', '#' + hash);
+    markNav();
+    var pt = $('#pageTitle'); if (pt) pt.textContent = TITLES[v] || '';
+    var m = $('#main');
+    m.className = 'inner' + (v === 'admin' ? ' wide' : '');
+    m.innerHTML = '<div class="loading">読み込み中…</div>';
+    window.scrollTo(0, 0);
+    Promise.resolve().then(function () { return VIEWS[v](arg); }).then(function (r) {
+      if (view !== v) return;
+      if (typeof r === 'string') m.innerHTML = r;
+      if (VIEWS[v].after) VIEWS[v].after(arg);
+    }).catch(function (e) {
+      m.innerHTML = backBtn('home') + '<div class="note err">' + esc(e.message || e) + '</div>';
+    });
+  }
+
+  // ------------------------------------------------------------ 共通部品
+  function seals(steps, mini) {
+    return '<div class="seals' + (mini ? ' mini' : '') + '">' + steps.map(function (s) {
+      var mark = s.state === 'done' ? '<span class="stamp">済</span>' :
+        s.state === 'rejected' ? '<span class="stamp rej">却</span>' :
+        s.state === 'withdrawn' ? '<span class="stamp wd">取</span>' :
+        s.state === 'current' ? '<span class="now"></span>' : '<span class="wait"></span>';
+      var sub = '';
+      if (!mini) {
+        if (s.by) sub = s.by + (s.at ? ' ' + fmt(s.at).slice(5) : '');
+        else if (s.members && s.members.length && s.state !== 'done') sub = s.members.join('・');
+      }
+      return '<div><span class="lbl">' + esc(s.name) + '</span><div class="box">' + mark + '</div>' + (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</div>';
+    }).join('') + '</div>';
+  }
+
+  function reqRow(r, extra) {
+    return '<button class="row" data-go="detail" data-arg="' + attr(r.id) + '">' +
+      '<div class="t"><b>' + esc(r.typeName) + '</b><span>' + (extra ? esc(extra) + ' ・ ' : '') + esc(fmt(r.submittedAt)) + (r.summary ? ' ・ ' + esc(r.summary) : '') + '</span>' +
+      '<span class="st ' + esc(r.status) + '">' + esc(r.statusLabel) + '</span></div>' +
+      '<div style="flex:none">' + seals(r.steps || [], true) + '</div>' + ICON.chev + '</button>';
+  }
+  function list(items, emptyText, extraFn) {
+    return '<div class="card">' + (items.length ? items.map(function (r) { return reqRow(r, extraFn ? extraFn(r) : ''); }).join('') :
+      '<div class="empty">' + ICON.info + esc(emptyText) + '</div>') + '</div>';
+  }
+  function backBtn(v, a) {
+    return '<button class="back" data-go="' + v + '"' + (a ? ' data-arg="' + attr(a) + '"' : '') + '>' + ICON.back + '戻る</button>';
+  }
+  function tabs(labels, panes) {
+    return '<div class="tabs">' + labels.map(function (l, i) { return '<button type="button" data-tab="' + i + '" class="' + (i === 0 ? 'on' : '') + '">' + esc(l) + '</button>'; }).join('') + '</div>' +
+      panes.map(function (p, i) { return '<div data-pane="' + i + '"' + (i ? ' hidden' : '') + '>' + p + '</div>'; }).join('');
+  }
+  function bindTabs(root) {
+    $$('.tabs button', root).forEach(function (b) {
+      b.onclick = function () {
+        var wrap = b.closest('.tabs').parentElement;
+        $$('.tabs button', wrap).forEach(function (x) { x.classList.toggle('on', x === b); });
+        $$('[data-pane]', wrap).forEach(function (p) { if (p.parentElement === wrap) p.hidden = p.getAttribute('data-pane') !== b.getAttribute('data-tab'); });
+      };
+    });
+  }
+
+  // ------------------------------------------------------------ ホーム
+  VIEWS.home = function () {
+    return call('apiMyRequests').then(function (mine) {
+      var active = mine.filter(function (r) { return r.group === 'open'; });
+      return '<div class="hero"><h2>' + ICON.pen + '申請する</h2>' +
+        '<p>種類を選ぶと入力画面に進みます。上長 → 常務 → 総務課・社長の順に回ります。</p>' +
+        '<div class="types">' + (B.types.length ? B.types.map(function (t, i) {
+          return '<button class="pill' + (i === 0 ? ' black' : '') + '" data-go="form" data-arg="' + attr(t.id) + '">' + esc(t.name) + '</button>';
+        }).join('') : '<span class="muted">利用できる申請種別がありません</span>') + '</div></div>' +
+        '<h3>進行中の申請 <small>全 ' + active.length + ' 件・新しい順</small></h3>' + list(active, '進行中の申請はありません') +
+        (mine.length > active.length ? '<p class="muted" style="margin-top:12px">完了・却下した申請は<a href="#" data-go="mine">自分の申請</a>で確認できます。</p>' : '') +
+        (B.flags.admin ? '<p class="muted" style="margin-top:12px">管理者: <a href="#" data-go="admin">管理画面を開く</a>（運用モード・役割・承認経路・説明文の設定）</p>' : '');
+    });
+  };
+
+  // ------------------------------------------------------------ 自分の申請
+  VIEWS.mine = function () {
+    return call('apiMyRequests').then(function (all) {
+      var open = all.filter(function (r) { return r.group === 'open'; }), closed = all.filter(function (r) { return r.group !== 'open'; });
+      return tabs(['進行中（' + open.length + '）', '完了・却下（' + closed.length + '）'],
+        [list(open, '進行中の申請はありません'), list(closed, '完了した申請はありません')]);
+    });
+  };
+  VIEWS.mine.after = function () { bindTabs($('#main')); };
+
+  // ------------------------------------------------------------ 申請フォーム
+  function fieldHtml(f) {
+    var id = 'f_' + f.key, req = f.required ? '<em>必須</em>' : '';
+    var val = f.default || '';
+    var input;
+    switch (f.type) {
+      case 'static': input = '<div class="static">' + esc(/^\d{1,2}:\d{2}$/.test(val) ? jpTime(val) : val) + '</div>'; break;
+      case 'textarea': input = '<textarea id="' + id + '" name="' + f.key + '" placeholder="' + attr(f.placeholder || '') + '">' + esc(val) + '</textarea>'; break;
+      case 'date': input = '<input type="date" id="' + id + '" name="' + f.key + '" value="' + attr(val) + '">'; break;
+      case 'time': input = '<input type="time" id="' + id + '" name="' + f.key + '" value="' + attr(val) + '" step="' + ((f.step || 5) * 60) + '">'; break;
+      case 'number': input = '<input type="number" id="' + id + '" name="' + f.key + '" value="' + attr(val) + '">'; break;
+      case 'select':
+        input = '<select id="' + id + '" name="' + f.key + '">' + (f.required ? '' : '<option value="">選択</option>') +
+          (f.options || []).map(function (o) { return '<option value="' + attr(o.value) + '"' + (String(o.value) === String(val) ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select>';
+        break;
+      case 'radio':
+        input = '<div class="opts">' + (f.options || []).map(function (o) {
+          var on = String(o.value) === String(val);
+          return '<label class="' + (on ? 'on' : '') + '"><input type="radio" name="' + f.key + '" value="' + attr(o.value) + '"' + (on ? ' checked' : '') + '>' + esc(o.label) + '</label>';
+        }).join('') + '</div>';
+        break;
+      default: input = '<input type="text" id="' + id + '" name="' + f.key + '" value="' + attr(val) + '" placeholder="' + attr(f.placeholder || '') + '">';
+    }
+    return '<div class="f"><label class="l" for="' + id + '">' + esc(f.label) + req + '</label>' + input + (f.hint ? '<div class="hint">' + esc(f.hint) + '</div>' : '') + '</div>';
+  }
+  function jpTime(v) { var p = String(v).split(':'); return parseInt(p[0], 10) + '時' + (p[1] && p[1] !== '00' ? parseInt(p[1], 10) + '分' : ''); }
+
+  VIEWS.form = function (typeId) {
+    if (!typeId) { go('home'); return ''; }
+    return call('apiFormDefinition', typeId).then(function (def) {
+      state.formDef = def;
+      var html = def.fields.map(function (f) {
+        if (f.type === 'group') return '<div class="f grp"><span class="l">' + esc(f.label) + '</span></div>';
+        return fieldHtml(f);
+      }).join('');
+      var sel = (def.selections || []).map(function (s) {
+        return '<div class="f"><label class="l" for="sel_' + s.stepIndex + '">' + esc(s.stepName.replace(/承認$/, '')) + '（' + esc(s.stepName) + '者）<em>必須</em></label>' +
+          '<select id="sel_' + s.stepIndex + '" data-sel="' + s.stepIndex + '"><option value="">選択</option>' +
+          s.candidates.map(function (c) { return '<option value="' + attr(c.email) + '">' + esc(c.name) + '</option>'; }).join('') + '</select>' +
+          (s.candidates.length ? '' : '<div class="hint" style="color:var(--red)">候補者が登録されていません。管理者に「役割マスター」への登録を依頼してください。</div>') + '</div>';
+      }).join('');
+      return backBtn('home') + '<h2>' + esc(def.formTitle) + '</h2>' +
+        (def.description ? '<div class="desc">' + def.description + '</div>' : '') +
+        '<div id="form-errors"></div>' +
+        '<form class="card form" id="reqForm" novalidate>' +
+        '<div class="f"><span class="l">申請者</span><div>' + esc(def.applicant.name) + ' <span class="muted">' + esc(def.applicant.email) + '</span></div></div>' +
+        html + '<div class="f grp"><span class="l">承認者</span></div>' + sel +
+        '<div class="actions"><button class="btn ghost" type="button" data-go="home">やめる</button><button class="btn" type="submit" id="submitBtn">申請する ' + ICON.arrow + '</button></div></form>';
+    });
+  };
+  VIEWS.form.after = function () {
+    var form = $('#reqForm'); if (!form) return;
+    $$('.opts input', form).forEach(function (r) {
+      r.addEventListener('change', function () { $$('label', r.closest('.opts')).forEach(function (l) { l.classList.toggle('on', l.querySelector('input').checked); }); });
+    });
+    form.addEventListener('submit', submitForm);
+  };
+
+  function collectForm() {
+    var form = $('#reqForm'), values = {}, selections = {};
+    state.formDef.fields.forEach(function (f) {
+      if (f.type === 'group' || f.type === 'static') return;
+      if (f.type === 'radio') { var c = form.querySelector('input[name="' + f.key + '"]:checked'); values[f.key] = c ? c.value : ''; }
+      else { var el = form.querySelector('[name="' + f.key + '"]'); values[f.key] = el ? el.value : ''; }
+    });
+    $$('[data-sel]', form).forEach(function (s) { selections[s.getAttribute('data-sel')] = s.value; });
+    return { values: values, selections: selections };
+  }
+
+  function submitForm(e) {
+    e.preventDefault();
+    var d = collectForm(), errors = [];
+    state.formDef.fields.forEach(function (f) {
+      if (f.required && f.type !== 'group' && f.type !== 'static' && !String(d.values[f.key] || '').trim()) errors.push('「' + f.label + '」は必須です。');
+    });
+    (state.formDef.selections || []).forEach(function (s) { if (!d.selections[String(s.stepIndex)]) errors.push('「' + s.stepName + '」を行う承認者を選択してください。'); });
+    var box = $('#form-errors');
+    if (errors.length) { box.innerHTML = '<div class="note err">' + esc(errors.join('\n')) + '</div>'; window.scrollTo(0, 0); return; }
+    box.innerHTML = '';
+    var rows = state.formDef.fields.filter(function (f) { return f.type !== 'group' && f.type !== 'static' && d.values[f.key]; }).map(function (f) {
+      var v = d.values[f.key];
+      if (f.options) f.options.forEach(function (o) { if (String(o.value) === String(v)) v = o.label; });
+      if (f.type === 'time') v = jpTime(v);
+      return '<div>' + esc(f.label) + '</div><div>' + esc(v) + '</div>';
+    }).join('');
+    modal('この内容で申請しますか？', '<div class="kv">' + rows + '</div>', [
+      { label: 'もどる', cls: 'ghost' },
+      { label: '申請する', onClick: function (btn) {
+        btn.disabled = true; btn.textContent = '送信中…';
+        call('apiSubmitRequest', state.formDef.id, d.values, d.selections).then(function (res) {
+          closeModal(); toast('申請しました'); refreshCounts(); go('detail', res.id);
+        }).catch(function (err) { closeModal(); box.innerHTML = '<div class="note err">' + esc(err.message) + '</div>'; window.scrollTo(0, 0); });
+        return false;
+      } }
+    ]);
+  }
+
+  // ------------------------------------------------------------ 詳細
+  VIEWS.detail = function (id) {
+    if (!id) { go('mine'); return ''; }
+    return call('apiRequestDetail', id).then(detailHtml);
+  };
+  VIEWS.detail.after = function (id) { bindDetail(id); };
+
+  function detailHtml(d) {
+    var r = d.request;
+    state.detail = d;
+    var vals = d.rows.map(function (x) { return '<div>' + esc(x.label) + '</div><div>' + esc(x.value) + '</div>'; }).join('');
+    var steps = d.progress.slice(1); // 先頭の「申請」は押印欄に出さない
+    var hist = d.history.map(function (h) {
+      return '<li><time>' + esc(fmt(h.at)) + '</time><div>' + esc(h.action) + '　' + esc(h.actorName) + (h.step ? ' <span class="muted">（' + esc(h.step) + '）</span>' : '') +
+        (h.comment ? '<i>' + esc(h.comment) + '</i>' : '') + '</div></li>';
+    }).join('');
+    var back = view === 'detail' && B.flags.approver && r.applicantEmail !== B.user.email ? 'approvals' : 'mine';
+    return backBtn(back) + '<h2>' + esc(r.typeName) + '</h2>' +
+      '<p class="muted">' + esc(r.applicantName) + ' ・ ' + esc(fmt(r.submittedAt)) + ' 申請 ・ ' + esc(r.id) + '</p>' +
+      seals(steps) +
+      '<p class="st ' + esc(r.status) + '" style="margin:10px 0 0">' + esc(r.statusLabel) + '</p>' +
+      (d.rejectReason ? '<div class="note err" style="margin-top:12px"><b>却下理由:</b> ' + esc(d.rejectReason) + '</div>' : '') +
+      '<h3>申請内容</h3><div class="card kv">' + vals + '</div>' +
+      (d.can.approve ? '<h3>承認</h3><div class="card form">' +
+        '<div class="f"><label class="l" for="cmt">コメント（却下のときは理由として必須・申請者へ通知されます）</label><textarea id="cmt"></textarea></div>' +
+        '<div class="actions"><button class="btn danger" id="btnReject">却下する</button><button class="btn seal" id="btnApprove">承認する</button></div></div>' : '') +
+      (d.can.receive ? '<h3>受理</h3><div class="card form">' +
+        '<div class="f"><span class="l">総務課・社長は承認者ではなく提出先です。内容を確認し、受理したことを記録してください。</span><textarea id="rcpt" placeholder="メモ（任意）"></textarea></div>' +
+        '<div class="actions"><button class="btn seal" id="btnReceive">受理する</button></div></div>' : '') +
+      (d.can.withdraw ? '<div class="actions"><button class="btn ghost" id="btnWithdraw">この申請を取り下げる</button></div>' : '') +
+      '<h3>履歴</h3><ul class="card hist">' + (hist || '<li><div class="muted">履歴はありません</div></li>') + '</ul>';
+  }
+
+  function bindDetail(id) {
+    var a = $('#btnApprove'), j = $('#btnReject'), rc = $('#btnReceive'), w = $('#btnWithdraw');
+    if (a) a.onclick = function () {
+      modal('承認しますか？', '<p class="muted" style="font-size:14px">' + esc(state.detail.request.applicantName) + ' さんの「' + esc(state.detail.request.typeName) + '」を承認します。</p>',
+        [{ label: 'もどる', cls: 'ghost' }, { label: '承認する', cls: 'seal', onClick: function (b) { return act(b, 'apiApprove', id, $('#cmt').value, '承認しました', 'approvals'); } }]);
+    };
+    if (j) j.onclick = function () {
+      var c = $('#cmt').value.trim();
+      if (!c) { toast('却下理由をコメント欄に入力してください', true); $('#cmt').focus(); return; }
+      modal('却下しますか？', '<p class="muted" style="font-size:14px">理由: ' + esc(c) + '</p>',
+        [{ label: 'もどる', cls: 'ghost' }, { label: '却下する', cls: 'danger', onClick: function (b) { return act(b, 'apiReject', id, c, '却下しました', 'approvals'); } }]);
+    };
+    if (rc) rc.onclick = function () {
+      modal('受理しますか？', '<p class="muted" style="font-size:14px">受理を記録し、申請者へ通知します。</p>',
+        [{ label: 'もどる', cls: 'ghost' }, { label: '受理する', cls: 'seal', onClick: function (b) { return act(b, 'apiReceive', id, $('#rcpt').value, '受理しました', 'receipts'); } }]);
+    };
+    if (w) w.onclick = function () {
+      modal('この申請を取り下げますか？', '<p class="muted" style="font-size:14px">取り下げた申請は元に戻せません。必要な場合は再度申請してください。</p>',
+        [{ label: 'もどる', cls: 'ghost' }, { label: '取り下げる', cls: 'danger', onClick: function (b) { return act(b, 'apiWithdraw', id, undefined, '取り下げました', 'mine'); } }]);
+    };
+  }
+
+  function act(btn, fn, id, arg, okMsg, nextView) {
+    btn.disabled = true; btn.textContent = '処理中…';
+    (arg === undefined ? call(fn, id) : call(fn, id, arg)).then(function () {
+      closeModal(); toast(okMsg); refreshCounts(); go(nextView);
+    }).catch(function (e) { closeModal(); fail(e); go('detail', id); });
+    return false;
+  }
+
+  // ------------------------------------------------------------ 承認・受理
+  VIEWS.approvals = function () {
+    return call('apiApprovals').then(function (d) {
+      return tabs(['承認待ち（' + d.pending.length + '）', '処理済み'],
+        [list(d.pending, '承認待ちの申請はありません', function (r) { return r.applicantName; }),
+         list(d.done, '処理した申請はありません', function (r) { return r.applicantName + '・' + r.myAction; })]);
+    });
+  };
+  VIEWS.approvals.after = function () { bindTabs($('#main')); };
+
+  VIEWS.receipts = function () {
+    return call('apiReceipts').then(function (d) {
+      return '<div class="note">総務課・社長は承認者ではなく提出先です。上長・常務の承認が完了した申請を確認し、「受理」を記録してください。</div>' +
+        tabs(['受理待ち（' + d.pending.length + '）', '受理済み'],
+        [list(d.pending, '受理待ちの申請はありません', function (r) { return r.applicantName; }),
+         list(d.done, '受理した申請はありません', function (r) { return r.applicantName; })]);
+    });
+  };
+  VIEWS.receipts.after = function () { bindTabs($('#main')); };
+
+  // ------------------------------------------------------------ 管理
+  var ADMIN_TABS = [
+    { id: 'settings', label: '設定・運用モード' },
+    { id: 'roles', label: '役割', sheet: '役割マスター' },
+    { id: 'users', label: '利用者', sheet: '利用者マスター' },
+    { id: 'routes', label: '承認経路', sheet: '承認経路' },
+    { id: 'types', label: '申請種別', sheet: '申請種別マスター' },
+    { id: 'descriptions', label: '説明文' },
+    { id: 'chat', label: 'Chat通知先', sheet: 'Chat通知先' },
+    { id: 'requests', label: '全申請' }
+  ];
+
+  VIEWS.admin = function () {
+    return call('apiAdminOverview').then(function (ov) {
+      state.adminOverview = ov;
+      return '<p class="muted">運用モード: <b>' + (ov.mode === 'TEST' ? 'テスト運用' : '本番運用') + '</b> ／ 申請 ' + ov.counts.requests + ' 件 ／ 利用者 ' + ov.counts.users + ' 人 ／ Chat連携: ' +
+        (ov.chatConfigured ? '設定済み' : '<span style="color:var(--red)">未設定（メール通知にフォールバック）</span>') +
+        ' ／ <a href="' + attr(ov.spreadsheetUrl) + '" target="_blank" rel="noopener">スプレッドシートを開く</a></p>' +
+        '<div class="tabs" id="admin-tabs">' + ADMIN_TABS.map(function (t) { return '<button type="button" data-atab="' + t.id + '" class="' + (t.id === state.adminTab ? 'on' : '') + '">' + esc(t.label) + '</button>'; }).join('') + '</div>' +
+        '<div id="admin-pane"></div>';
+    });
+  };
+  VIEWS.admin.after = function () {
+    $$('#admin-tabs button').forEach(function (b) {
+      b.onclick = function () { $$('#admin-tabs button').forEach(function (x) { x.classList.toggle('on', x === b); }); state.adminTab = b.getAttribute('data-atab'); renderAdminTab(); };
+    });
+    renderAdminTab();
+  };
+
+  function renderAdminTab() {
+    var pane = $('#admin-pane'); if (!pane) return;
+    var tab = ADMIN_TABS.filter(function (t) { return t.id === state.adminTab; })[0] || ADMIN_TABS[0];
+    pane.innerHTML = '<div class="loading">読み込み中…</div>';
+    if (tab.id === 'settings') return renderSettings(pane);
+    if (tab.id === 'descriptions') return renderDescriptions(pane);
+    if (tab.id === 'requests') return renderAllRequests(pane);
+    if (tab.sheet) return renderSheetEditor(pane, tab.sheet);
+  }
+
+  function renderSettings(pane) {
+    var ov = state.adminOverview;
+    function sel(key, opts, cur) {
+      return '<select data-key="' + key + '">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (String(cur).toUpperCase() === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>';
+    }
+    var rows = ov.settings.map(function (s) {
+      var input;
+      if (s.key === 'MODE') input = sel('MODE', [['TEST', 'TEST（テスト運用）'], ['PROD', 'PROD（本番運用）']], s.value);
+      else if (/^(NOTIFY_CHAT_DM|NOTIFY_EMAIL_FALLBACK|ALLOW_WITHDRAW|NOTIFY_DEPUTY_ALWAYS)$/.test(s.key)) input = sel(s.key, [['TRUE', 'TRUE（有効）'], ['FALSE', 'FALSE（無効）']], String(s.value).toUpperCase() === 'TRUE' ? 'TRUE' : 'FALSE');
+      else if (s.key === 'RECEIPT_RULE') input = sel('RECEIPT_RULE', [['ANY', 'ANY（1人が受理すれば完了）'], ['ALL', 'ALL（全員の受理で完了）']], s.value);
+      else input = '<input type="text" data-key="' + s.key + '" value="' + attr(s.value) + '">';
+      return '<div class="f"><label class="l"><code>' + esc(s.key) + '</code></label>' + input + '<div class="hint">' + esc(s.description) + '</div></div>';
+    }).join('');
+    pane.innerHTML =
+      '<div class="note"><b>本番移行の手順:</b> 「役割」タブで本番の担当者（環境=本番）を登録 → 通知テストで確認 → MODE を PROD に変更。テスト中のデータ（_TEST シート）は本番データと混ざりません。</div>' +
+      (ov.webAppUrl ? '<p class="muted">現在の Web アプリ URL: <code>' + esc(ov.webAppUrl) + '</code>（APP_URL が空ならこの URL を使います）</p>' : '') +
+      '<div class="card form settings">' + rows +
+      '<div class="actions"><button class="btn ghost" id="testNotify">自分宛てに通知テスト</button><button class="btn" id="saveSettings">設定を保存</button></div></div>';
+    $('#saveSettings').onclick = function () {
+      var settings = {}; $$('[data-key]', pane).forEach(function (el) { settings[el.getAttribute('data-key')] = el.value; });
+      this.disabled = true;
+      call('apiAdminSaveSettings', settings).then(function () { toast('設定を保存しました'); return refreshCounts(); }).then(function () { go('admin'); })
+        .catch(function (e) { fail(e); $('#saveSettings').disabled = false; });
+    };
+    $('#testNotify').onclick = function () {
+      var b = this; b.disabled = true;
+      call('apiAdminSendTestNotification', '').then(function (r) { toast('通知テストを送信しました → ' + r.to); }).catch(fail).then(function () { b.disabled = false; });
+    };
+  }
+
+  var SHEET_HELP = {
+    '役割マスター': '同じ人に複数の役割を付けられます。「環境」をテストにした行はテスト運用時のみ、本番にした行は本番運用時のみ有効です（共通は両方）。テスト時は同じメールアドレスを全役割に登録できます。',
+    '利用者マスター': '初回アクセスした人は自動で追加されます。氏名・部署を整えてください。',
+    '承認経路': '申請種別ID「*」が既定の経路です。種別ごとに別の経路が必要なときは、その種別IDの行を追加します。「ステップ種類=受理」は承認ではなく提出先（総務課・社長）です。承認ステップの行を増やせば 3 段階以上にできます。',
+    '申請種別マスター': '有効=FALSE にすると申請画面に表示されません。新しい種別はプログラム側（RequestTypes.gs）に定義を追加したうえで行を追加します。',
+    'Chat通知先': '利用者が Chat でこのアプリに話しかけると自動登録されます。空欄の人には DM を送れないため、メール等にフォールバックします。'
+  };
+
+  function renderSheetEditor(pane, sheetName) {
+    call('apiAdminGetSheet', sheetName).then(function (d) {
+      function rowHtml(row) {
+        return '<tr>' + d.headers.map(function (h, i) {
+          var hint = d.hints[h], v = row[i] === undefined ? '' : row[i];
+          if (hint && hint.options) {
+            var found = hint.options.indexOf(String(v)) >= 0;
+            return '<td><select>' + (found ? '' : '<option value="' + attr(v) + '" selected>' + esc(v || '（未設定）') + '</option>') +
+              hint.options.map(function (o) { return '<option value="' + attr(o) + '"' + (String(o) === String(v) ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select></td>';
+          }
+          return '<td><input type="text" value="' + attr(v) + '"></td>';
+        }).join('') + '<td class="ctl"><button type="button" class="btn ghost sm del">削除</button></td></tr>';
+      }
+      pane.innerHTML = (SHEET_HELP[sheetName] ? '<div class="note">' + esc(SHEET_HELP[sheetName]) + '</div>' : '') +
+        '<div class="card" style="padding:6px 10px"><div class="table-wrap"><table class="grid"><thead><tr>' + d.headers.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '<th></th></tr></thead>' +
+        '<tbody>' + d.rows.map(rowHtml).join('') + '</tbody></table></div></div>' +
+        '<div class="actions"><button class="btn ghost" id="addRow">＋ 行を追加</button><button class="btn" id="saveSheet">保存</button></div>';
+      var tbody = $('tbody', pane);
+      tbody.addEventListener('click', function (e) { if (e.target.classList.contains('del')) e.target.closest('tr').remove(); });
+      $('#addRow').onclick = function () { tbody.insertAdjacentHTML('beforeend', rowHtml([])); };
+      $('#saveSheet').onclick = function () {
+        var rows = $$('tr', tbody).map(function (tr) { return $$('td', tr).slice(0, d.headers.length).map(function (td) { var el = td.querySelector('input,select'); return el ? el.value : ''; }); });
+        var b = this; b.disabled = true;
+        call('apiAdminSaveSheet', sheetName, rows).then(function () { toast('保存しました'); refreshCounts(); renderSheetEditor(pane, sheetName); })
+          .catch(function (e) { fail(e); b.disabled = false; });
+      };
+    }).catch(function (e) { pane.innerHTML = '<div class="note err">' + esc(e.message) + '</div>'; });
+  }
+
+  function renderDescriptions(pane) {
+    var ov = state.adminOverview;
+    pane.innerHTML =
+      '<div class="note">申請画面の上部に表示する注意事項・社内ルールを編集します。保存するとすぐに申請画面へ反映されます。</div>' +
+      '<div class="card form">' +
+      '<div class="f"><label class="l" for="descType">申請種別</label><select id="descType">' + ov.types.map(function (t) { return '<option value="' + attr(t.id) + '">' + esc(t.name) + '（' + esc(t.formTitle) + '）</option>'; }).join('') + '</select></div>' +
+      '<div class="f"><span class="l">説明文</span><div class="rte-bar">' +
+      '<button type="button" data-cmd="formatBlock" data-val="h3">見出し</button><button type="button" data-cmd="formatBlock" data-val="p">本文</button>' +
+      '<button type="button" data-cmd="bold"><b>太字</b></button><button type="button" data-cmd="underline"><u>下線</u></button>' +
+      '<button type="button" data-cmd="insertUnorderedList">• 箇条書き</button><button type="button" data-cmd="insertOrderedList">1. 番号</button>' +
+      '<button type="button" data-color="#d64545" style="color:#d64545">赤字</button><button type="button" data-color="#2f6fd6" style="color:#2f6fd6">青字</button><button type="button" data-color="inherit">色解除</button>' +
+      '<button type="button" data-cmd="createLink">リンク</button><button type="button" data-cmd="removeFormat">書式解除</button></div>' +
+      '<div class="rte" id="rte" contenteditable="true"></div></div>' +
+      '<div class="f"><span class="l">プレビュー</span><div class="desc" id="descPrev"></div></div>' +
+      '<div class="actions"><button class="btn" id="saveDesc">説明文を保存</button></div></div>';
+    var rte = $('#rte'), prev = $('#descPrev');
+    function load() {
+      rte.innerHTML = '<span class="muted">読み込み中…</span>';
+      call('apiAdminGetDescription', $('#descType').value).then(function (d) { rte.innerHTML = d.html || '<p></p>'; prev.innerHTML = d.html; }).catch(fail);
+    }
+    $('#descType').onchange = load; load();
+    rte.addEventListener('input', function () { prev.innerHTML = rte.innerHTML; });
+    $$('.rte-bar button', pane).forEach(function (b) {
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      b.addEventListener('click', function () {
+        rte.focus();
+        if (b.dataset.color) { document.execCommand('styleWithCSS', false, true); document.execCommand('foreColor', false, b.dataset.color); }
+        else if (b.dataset.cmd === 'createLink') { var url = prompt('リンク先の URL を入力してください', 'https://'); if (url) document.execCommand('createLink', false, url); }
+        else document.execCommand(b.dataset.cmd, false, b.dataset.val || null);
+        prev.innerHTML = rte.innerHTML;
+      });
+    });
+    $('#saveDesc').onclick = function () {
+      var b = this; b.disabled = true;
+      call('apiAdminSaveDescription', $('#descType').value, rte.innerHTML).then(function (d) { rte.innerHTML = d.html; prev.innerHTML = d.html; toast('説明文を保存しました'); })
+        .catch(fail).then(function () { b.disabled = false; });
+    };
+  }
+
+  function renderAllRequests(pane) {
+    call('apiAdminAllRequests').then(function (all) {
+      pane.innerHTML = '<p class="muted">現在の運用モードのすべての申請（' + all.length + ' 件）。管理者はすべての申請の詳細を閲覧できます。</p>' + list(all, '申請はありません', function (r) { return r.applicantName; });
+    }).catch(function (e) { pane.innerHTML = '<div class="note err">' + esc(e.message) + '</div>'; });
+  }
+
+  init();
+})();
+</script>

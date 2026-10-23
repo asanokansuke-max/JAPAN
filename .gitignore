@@ -1,2 +1,5 @@
 # テストのスクリーンショット
 *.png
+
+# Apps Script のプロジェクト設定（個人環境ごとに異なるため共有しない）
+shinsei-app/.clasp.json
