@@ -87,24 +87,35 @@
   }
 
   // ---------- ヘッダー ----------
+  const ic = d => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+  const TAB_ICON = {
+    home: ic('<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>'),
+    staff: ic('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18.5 14.8c1.7.8 2.7 2.5 3 5.2"/>'),
+    squad: ic('<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M9 10h6M9 14h6M9 18h3"/>'),
+    players: ic('<path d="M8 3l-5 3 2 4 2-1v12h10V9l2 1 2-4-5-3c-.5 1.5-2 2.5-4 2.5S8.5 4.5 8 3z"/>'),
+    scout: ic('<circle cx="6.5" cy="15" r="3.5"/><circle cx="17.5" cy="15" r="3.5"/><path d="M10 15h4M6.5 11.5L9 5h2l1 4 1-4h2l2.5 6.5"/>'),
+    tactics: ic('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="M15 7l3 3M18 7l-3 3"/><path d="M8 11c0 5 4 6 9 6"/><path d="M15 15l2 2-2 2"/>'),
+    schedule: ic('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="M8 14h2M14 14h2M8 17h2"/>'),
+    records: ic('<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H4v1a4 4 0 0 0 4 4M16 6h4v1a4 4 0 0 1-4 4"/><path d="M12 13v4M8 21h8M9 17h6v4H9z"/>')
+  };
   function header(S) {
     const ev = G.event();
     const str = S.jpnRating || G.japanStrength();
-    const tabs = [['home', 'ホーム'], ['staff', 'スタッフ'], ['squad', '招集'], ['players', '選手'], ['scout', '視察'], ['tactics', '戦術'], ['schedule', '日程・大会'], ['records', '記録']];
+    const tabs = [['home', 'ホーム'], ['staff', 'スタッフ'], ['squad', '招集'], ['players', '選手'], ['scout', '視察'], ['tactics', '戦術'], ['schedule', '日程'], ['records', '記録']];
     const dot = k => (k === 'staff' && S.phase === 'prep' && S.cur.reports && !S.cur.reportsSeen) || (k === 'squad' && S.phase === 'prep') || (k === 'home' && S.phase === 'summary') ? '<span class="dot"></span>' : '';
+    const pill = (v, l, m, low) => `<div class="meta"><span>${l}</span><b class="num">${v}</b>${m != null ? `<div class="meter ${low ? 'low' : ''}"><i style="width:${m}%"></i></div>` : ''}</div>`;
     return `<header class="top"><div class="top-in">
-        <div class="brand"><span class="disc"></span>サムライブルー<small>MANAGER</small></div>
+        <div class="top-row"><div class="brand"><span class="disc"></span>サムライブルー</div>
+          <div class="when"><b class="num">${S.date.y}.${String(S.date.m).padStart(2, '0')}</b><span>${esc(ev ? ev.title : '大会終了')}</span></div></div>
         <div class="top-meta">
-          <div class="meta"><b class="num">${S.date.y}.${String(S.date.m).padStart(2, '0')}</b><span>${esc(ev ? ev.title : '大会終了')}</span></div>
-          <div class="meta"><b class="num">${fmt1(str)}</b><span>チーム力</span></div>
-          ${RK && S.fifa ? `<div class="meta"><b class="num">${RK.rankOf('JPN')}位</b><span>FIFAランク</span></div>` : ''}
-          <div class="meta"><b class="num">${Math.round(S.morale)}</b><span>チーム士気</span><div class="meter ${S.morale < 35 ? 'low' : ''}"><i style="width:${S.morale}%"></i></div></div>
-          <div class="meta"><b class="num">${Math.round(S.fans)}</b><span>世論</span><div class="meter ${S.fans < 30 ? 'low' : ''}"><i style="width:${S.fans}%"></i></div></div>
-          <div class="meta"><b class="num">${Math.round(S.board)}</b><span>協会評価</span><div class="meter ${S.board < 30 ? 'low' : ''}"><i style="width:${S.board}%"></i></div></div>
+          ${pill(fmt1(str), 'チーム力')}
+          ${RK && S.fifa ? pill(RK.rankOf('JPN') + '位', 'FIFA') : ''}
+          ${pill(Math.round(S.morale), '士気', S.morale, S.morale < 35)}
+          ${pill(Math.round(S.fans), '世論', S.fans, S.fans < 30)}
+          ${pill(Math.round(S.board), '協会', S.board, S.board < 30)}
         </div>
-      </div>
-      <nav class="nav" aria-label="メニュー">${tabs.map(([k, l]) => `<button data-act="tab" data-v="${k}" aria-current="${tab === k}">${l}${dot(k)}</button>`).join('')}</nav>
-    </header>`;
+      </div></header>
+      <nav class="tabbar" aria-label="メニュー">${tabs.map(([k, l]) => `<button data-act="tab" data-v="${k}" aria-current="${tab === k}">${TAB_ICON[k]}<span>${l}</span>${dot(k)}</button>`).join('')}</nav>`;
   }
 
   function render() {
@@ -935,7 +946,7 @@
     if (!fx) return `<div class="matchbar"><div class="mb-in"><span><b>全試合終了</b></span><span class="spacer"></span><button class="btn go" data-act="end-event">活動を締めくくる</button></div></div>`;
     const pend = S.cur.leaveReq ? ['leave', '申し出に回答'] : LF.needsPrePress(fx) ? ['prepress', '前日会見に臨む'] : null;
     return `<div class="matchbar"><div class="mb-in"><span class="mb-t"><span class="small">${esc(fx.label)}</span><b>日本 vs ${esc(G.nname(fx.opp))}</b></span><span class="spacer"></span>
-      ${tab !== 'tactics' ? '<button class="btn" data-act="tab" data-v="tactics">作戦ボード</button>' : ''}
+      ${tab !== 'tactics' ? '<button class="btn" data-act="tab" data-v="tactics">作戦</button>' : ''}
       ${pend ? `<button class="btn primary" data-act="task" data-v="${pend[0]}">${pend[1]}</button>` : ''}
       <button class="btn go" data-act="kickoff" ${pend ? 'disabled' : ''}>キックオフ</button></div></div>`;
   }
@@ -1430,8 +1441,8 @@
     const h = window.innerHeight;
     const hdr = d.board.closest('.overlay') ? null : document.querySelector('.top');
     const topEdge = (hdr ? hdr.getBoundingClientRect().bottom : 0) + 60;
-    const bar = document.querySelector('.matchbar');
-    const botEdge = h - (bar && !d.board.closest('.overlay') ? bar.offsetHeight : 0) - 60;
+    const lows = d.board.closest('.overlay') ? [] : [...document.querySelectorAll('.matchbar, .tabbar')].map(x => x.getBoundingClientRect().top);
+    const botEdge = Math.min(h, ...lows) - 60;
     d.scrollDir = ev.clientY < topEdge ? -1 : ev.clientY > botEdge ? 1 : 0;
     d.lastEv = { clientX: ev.clientX, clientY: ev.clientY };
     if (d.scrollDir && !d.raf) {
