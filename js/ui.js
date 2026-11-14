@@ -118,6 +118,13 @@
       <nav class="tabbar" aria-label="メニュー">${tabs.map(([k, l]) => `<button data-act="tab" data-v="${k}" aria-current="${tab === k}">${TAB_ICON[k]}<span>${l}</span>${dot(k)}</button>`).join('')}</nav>`;
   }
 
+  // 画面下に固定したバーの高さだけ余白を取る（取りすぎない）
+  function fitBottom() {
+    const mb = document.querySelector('.matchbar');
+    document.documentElement.style.setProperty('--mb', mb ? mb.offsetHeight + 'px' : '0px');
+  }
+  window.addEventListener('resize', fitBottom);
+
   function render() {
     const S = G.state();
     if (!S) { renderTitle(); return; }
@@ -126,6 +133,7 @@
     else body = ({ home, staff, players, squad, scout, tactics, schedule, records })[tab](S);
     const bar = (S.phase === 'match') ? matchBar(S) : '';
     $('app').innerHTML = header(S) + `<main class="${bar ? 'with-bar' : ''}">${body}</main>` + bar;
+    fitBottom();
     renderModal();
   }
 
