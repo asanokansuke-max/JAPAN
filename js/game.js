@@ -87,7 +87,10 @@
     if (rnd() < 0.04) pot = ri(85, 90);
     pot = Math.min(pot, 90);
     const abroad = !opts.domestic && rnd() < 0.12;
-    const club = abroad ? pickW(D.CLUBS[4], () => 1) : (ageY <= 18 && !opts.domestic && rnd() < 0.5 ? pickW(D.YOUTH_CLUBS, () => 1) : pickW(D.CLUBS[5], () => 1));
+    // 18歳以下は高校・ユース、19〜21歳の一部は大学
+    const school = D.YOUTH_CLUBS.filter(c => ageY <= 18 ? !c.endsWith('大') : c.endsWith('大'));
+    const student = !abroad && !opts.domestic && ((ageY <= 18 && rnd() < 0.5) || (ageY >= 19 && ageY <= 21 && rnd() < 0.3));
+    const club = abroad ? pickW(D.CLUBS[4], () => 1) : student ? pickW(school, () => 1) : pickW(D.CLUBS[5], () => 1);
     const traits = [];
     if (rnd() < 0.7) traits.push(pickW(TRAITS_BY_POS[pos], () => 1));
     if (rnd() < 0.25) { const t = pickW(TRAITS_BY_POS[pos], () => 1); if (!traits.includes(t)) traits.push(t); }
@@ -145,7 +148,7 @@
       training: null, trainBonus: null, fam: { '3-4-2-1': 62, '4-2-3-1': 50, '4-3-3': 35, '4-4-2': 30, '3-5-2': 30 },
       board: 60, morale: 60, fans: 55, scoutPts: 3, news: [],
       setPlay: { ck: 'mix', defend: 'zone', ckTaker: null, fkTaker: null, pkTaker: null }, spFam: 40,
-      captain: null, vice: null, upgrades: {}, clubRel: {}, meeting: null, instr: {}, ti: Object.assign({}, E.TI_DEFAULT), pstyle: {}, funds: 50, oppState: {}, matches: [], comps: {}, cur: null, log: [], wcResult: null, nextId: 0
+      captain: null, vice: null, upgrades: {}, clubRel: {}, meeting: null, instr: {}, ti: Object.assign({}, E.TI_DEFAULT), pstyle: {}, ulist: {}, funds: 50, oppState: {}, matches: [], comps: {}, cur: null, log: [], wcResult: null, nextId: 0
     };
     D.NATIONS.forEach(n => { S.nations[n.code] = { rating: n.rating, base: n.rating }; });
     if (root.SBRank) root.SBRank.init(S);
@@ -239,7 +242,30 @@
   function isOly() { const ev = event(); return !!ev && ev.comp === 'olympic'; }
   // E-1選手権は国内組（Jリーグ所属）だけで戦う
   function isE1() { const ev = event(); return !!ev && ev.comp === 'e1'; }
-  function eligibleNow(p) { return isOly() ? p.born >= 2005 : isE1() ? root.SBWorld.isJ(p.club) : true; }
+  function eligibleNow(p) { return isOly() ? p.born >= 2005 : isE1() ? root.SBWorld.isJ(p.club) : aReady(p); }
+  // 高校・大学の選手はまずアンダー世代で見る（飛び級は別格の選手だけ）
+  const SKIP_OVR = 76;
+  function isStudent(p) { return root.SBWorld.isYouth(p.club); }
+  function aReady(p) { return !isStudent(p) || p.ovr >= SKIP_OVR; }
+  function uCat(p) { const a = Math.floor(age(p)); return a <= 16 ? 'U-17' : a <= 19 ? 'U-20' : a <= 22 ? 'U-23' : null; }
+  function inUlist(p) { return !!(p && S.ulist && S.ulist[p.id]); }
+  function ulistAdd(p, from) {
+    if (!p || inUlist(p) || !uCat(p)) return false;
+    S.ulist[p.id] = { added: dateKey(), from: from || '監督', ovr0: Math.round(p.ovr) };
+    p.know = Math.max(p.know || 0, 2);
+    return true;
+  }
+  function ulistRemove(p) { if (p && S.ulist) delete S.ulist[p.id]; }
+  // アンダー世代の代表活動で鍛えられる・節目をニュースにする
+  function ulistMonth() {
+    for (const id of Object.keys(S.ulist || {})) {
+      const p = player(id), e = S.ulist[id];
+      if (!p || p.retired) { delete S.ulist[id]; continue; }
+      if (!uCat(p)) { delete S.ulist[id]; addNews('育成', `${p.name}がU世代リストを卒業（${ageInt(p)}歳）。今後はA代表の選考対象として見ていく。`); continue; }
+      if (p.ovr < p.pot && S.date.m % 2 === 0) p.ovr = Math.min(p.pot, p.ovr + 0.08);
+      if (!e.ready && !isStudent(p) && p.ovr >= 72) { e.ready = true; addNews('育成', `U世代リストの${p.name}（${p.club}・${ageInt(p)}歳）がA代表候補に名乗りを上げている。`, 'good'); }
+    }
+  }
   function tourAdj(comp) { return comp === 'olympic' ? OLY_ADJ : comp === 'e1' ? -5 : 0; }
   function olyEligible(p) { return p.born >= 2005; }
   function squadMax() { return isOly() ? 18 : isE1() ? 23 : 26; }
@@ -1211,6 +1237,7 @@
     root.SBWorld.month(S);
     if (root.SBExtra) root.SBExtra.dualMonth();
     if (root.SBDepth) { root.SBDepth.oppMonth(); root.SBDepth.youthMonth(); }
+    ulistMonth();
     ps.forEach(p => developMonth(p));
     ps.forEach(p => {
       p.mood = (p.mood || 0) * 0.75;
@@ -1255,7 +1282,18 @@
 
   function newProspects() {
     // 高校・ユース・大学からの新星（ユース所属はプロへ）
-    active().forEach(p => { if (p.tier === 6 && age(p) >= 18) { p.club = pickW(D.CLUBS[5], () => 1); p.tier = 5; p.status = clubStatus(p); } });
+    active().forEach(p => {
+      if (!(isStudent(p) && age(p) >= 18 && (age(p) >= 22 || !p.club.endsWith('大')))) return;
+      const from = p.club;
+      // 高校卒業後に大学へ進む選手もいる
+      if (!from.endsWith('大') && p.ovr < 70 && rnd() < 0.3) {
+        p.club = pickW(D.YOUTH_CLUBS.filter(c => c.endsWith('大')), () => 1);
+        if (inUlist(p)) addNews('育成', `U世代リストの${p.name}は${from}を卒業し、${p.club}に進学。`);
+        return;
+      }
+      p.club = pickW(D.CLUBS[5], () => 1); p.tier = 5; p.status = clubStatus(p);
+      if (inUlist(p)) addNews('育成', `U世代リストの${p.name}が${from}から${p.club}に加入し、プロとしての一歩を踏み出した。`, 'good');
+    });
     const n = ri(3, 5);
     const names = [];
     for (let i = 0; i < n; i++) { const p = genProspect(S.date.y); S.players.push(p); p.hist.push([dateKey(), Math.round(p.ovr)]); names.push(`${p.name}（${p.club}・${E.POS_LABEL[p.pos]}）`); }
@@ -1296,6 +1334,7 @@
     if (!s.instr) s.instr = {};
     s.ti = Object.assign({}, E.TI_DEFAULT, s.ti || {});
     if (!s.pstyle) s.pstyle = {};
+    if (!s.ulist) s.ulist = {};
     if (!s.roles) s.roles = {};
     if (s.funds == null) s.funds = 50;
     if (!s.oppState) s.oppState = {};
@@ -1324,7 +1363,7 @@
   root.SBGame = {
     CALENDAR, STATUS_LABEL, newGame, load, save, clearSave, state, setState, event, player, active, nation, nname,
     age, ageInt, attributes, potRange, potGrade, autoPick, xiRating, teamChem, japanStrength, slotsOf, available, squadIssues,
-    makeYouth, opponentsNow, rolesOf, setRole, remapXI, isE1, eligibleNow, tourOf, makeExternal, injuryLimit, minorInjury, callable, curGroup, compGroup, squadMax, isOly, olyEligible, suspended, confirmCamp, announce, startPress, answerPress, startCamp, trainSession, finishCamp, addNews, visible, scout, autoSquad, nextFixture, createMatch, applyResult, eventFinished, endEvent, advance, table, tourGroupOfJapan, dateStr,
+    makeYouth, isStudent, aReady, uCat, inUlist, ulistAdd, ulistRemove, SKIP_OVR, opponentsNow, rolesOf, setRole, remapXI, isE1, eligibleNow, tourOf, makeExternal, injuryLimit, minorInjury, callable, curGroup, compGroup, squadMax, isOly, olyEligible, suspended, confirmCamp, announce, startPress, answerPress, startCamp, trainSession, finishCamp, addNews, visible, scout, autoSquad, nextFixture, createMatch, applyResult, eventFinished, endEvent, advance, table, tourGroupOfJapan, dateStr,
     nationSpec, japanSpec, stepMonth, oppPlan, refreshReports, campCondition
   };
 })(typeof window !== 'undefined' ? window : globalThis);

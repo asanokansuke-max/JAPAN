@@ -137,12 +137,16 @@
     let pool = G.active().filter(p => p.born >= born && !p.dual);
     // 対象年代が少なければ新たな逸材が現れる
     while (pool.length < 6) { const p = G.makeYouth(S.date.y, ageMax); pool.push(p); }
-    const top = pool.sort((a, b) => b.ovr + b.pot * 0.3 - a.ovr - a.pot * 0.3).slice(0, 6);
+    // U世代リストの選手は継続して見てきたので、選考で優先され、大会で鍛えられる
+    const sc = p => p.ovr + p.pot * 0.3 + (G.inUlist(p) ? 3 : 0);
+    const top = pool.sort((a, b) => sc(b) - sc(a)).slice(0, 6);
+    top.filter(p => G.inUlist(p)).forEach(p => { p.ovr = Math.min(p.pot, p.ovr + 0.5); });
     const str = top.reduce((s, p) => s + p.ovr + p.pot * 0.1, 0) / top.length + (rnd() - 0.5) * 8;
     const res = str > 79.5 ? '優勝' : str > 77.5 ? 'ベスト4' : str > 75 ? 'ベスト8' : str > 72 ? 'ベスト16' : 'グループリーグ敗退';
     const stars = top.slice(0, 2 + (res === '優勝' || res === 'ベスト4' ? 1 : 0));
     stars.forEach(p => { p.hidden = false; p.know = Math.max(p.know || 0, 2); p.ovr = Math.min(p.pot + 1, p.ovr + 1 + rnd()); p.pot = Math.min(94, p.pot + (res === '優勝' ? 3 : 1)); });
-    G.addNews('育成', `${S.date.y}年${name}で日本は${res}。${stars.map(p => `${p.name}（${p.club}）`).join('・')}が世界に名を売った。`, res === '優勝' || res === 'ベスト4' ? 'good' : '');
+    S.youthLog = (S.youthLog || []).concat([{ y: S.date.y, name, res, ids: top.map(p => p.id) }]);
+    G.addNews('育成', `${S.date.y}年${name}で日本は${res}。${top.some(p => G.inUlist(p)) ? `U世代リストから${top.filter(p => G.inUlist(p)).length}人が出場。` : ''}${stars.map(p => `${p.name}（${p.club}）`).join('・')}が世界に名を売った。`, res === '優勝' || res === 'ベスト4' ? 'good' : '');
   }
 
   // ---------- 戦術の研究 ----------
@@ -202,5 +206,9 @@
     return diff > 0 ? 0.8 : diff === 0 ? 0.5 : 0.1;
   }
 
-  root.SBDepth = { opp, oppMonth, absentStars, oppNews, PRIOR, capsTotal, milestoneNews, upcomingMilestones, attendance, crowdBoost, PERSONAS, persona, personaForm, fundsAfterEvent, youthMonth, staleness, baseOptions, chooseBase, baseFx, practiceMatch, TALKS, talkEffect };
+  function nextYouthEvents(n) {
+    const S = G.state(), key = S.date.y * 100 + S.date.m;
+    return Object.keys(YOUTH_EVENTS).map(Number).filter(k => k > key).sort().slice(0, n || 2).map(k => ({ y: Math.floor(k / 100), m: k % 100, name: YOUTH_EVENTS[k][0], age: YOUTH_EVENTS[k][1] }));
+  }
+  root.SBDepth = { nextYouthEvents, opp, oppMonth, absentStars, oppNews, PRIOR, capsTotal, milestoneNews, upcomingMilestones, attendance, crowdBoost, PERSONAS, persona, personaForm, fundsAfterEvent, youthMonth, staleness, baseOptions, chooseBase, baseFx, practiceMatch, TALKS, talkEffect };
 })(typeof window !== 'undefined' ? window : globalThis);

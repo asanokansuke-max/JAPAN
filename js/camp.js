@@ -166,10 +166,16 @@
       if (p.hidden) { p.hidden = false; found.push(p); }
       if (t.kind === 'J' || t.kind === 'youth') mood(p, 0.3);
     });
-    found.forEach(p => G.addNews('視察', `視察で${p.name}（${p.club}・${G.ageInt(p)}歳・${E.POS_LABEL[p.pos]}）を発見。リストに追加。`, 'good'));
+    // 若い発見はまずU世代リストにメモする（学生はA代表に直接は呼ばない）
+    const listed = [];
+    found.forEach(p => {
+      const toU = G.uCat(p) && (G.isStudent(p) || t.kind === 'youth' || G.age(p) < 20);
+      if (toU && G.ulistAdd(p, t.title)) listed.push(p);
+      G.addNews('視察', `視察で${p.name}（${p.club}・${G.ageInt(p)}歳・${E.POS_LABEL[p.pos]}）を発見。${listed.includes(p) ? `${G.uCat(p)}世代としてU世代リストにメモした。` : '選手リストに追加。'}`, 'good');
+    });
     if (t.kind === 'J') S.fans = clamp(S.fans + 0.6, 0, 100);
     const rows = ps.sort((a, b) => (found.includes(b) - found.includes(a)) || b.ovr - a.ovr).slice(0, 8).map(p => ({ id: p.id, text: observe(p), found: found.includes(p) }));
-    t.report = { rows, found: found.length };
+    t.report = { rows, found: found.length, listed: listed.length };
     G.save();
     return t.report;
   }

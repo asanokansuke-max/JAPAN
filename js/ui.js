@@ -17,6 +17,18 @@
   const FORM5 = f => f >= 2 ? ['⬆', '絶好調', 'f5'] : f >= 0.7 ? ['↗', '好調', 'f4'] : f > -0.7 ? ['➡', '普通', 'f3'] : f > -2 ? ['↘', '不調', 'f2'] : ['⬇', '絶不調', 'f1'];
   const formTag = f => { const [i, l, c] = FORM5(f); return `<span class="farrow ${c}" title="${l}" aria-label="調子：${l}">${i}</span>`; };
   // 招集リスト用の状態チップ
+  function noCallReason(p) {
+    if (G.isOly()) return '五輪はU-23の選手とオーバーエイジだけ';
+    if (G.isE1()) return 'E-1はJリーグ所属の選手だけ';
+    if (G.isStudent(p)) return `${p.name}は学生。いきなりA代表は早い。U世代リストで見ていこう`;
+    return '今回は招集の対象外';
+  }
+  function ulistBtn(p, sm) {
+    if (!G.uCat(p)) return '';
+    const on = G.inUlist(p);
+    return `<button class="btn ${sm ? 'sm' : ''}" data-act="ulist" data-id="${p.id}" aria-pressed="${on}">${on ? `${G.uCat(p)}リストから外す` : `${G.uCat(p)}リストにメモ`}</button>`;
+  }
+
   function stateChips(p, opts) {
     const S = G.state();
     const out = [];
@@ -29,6 +41,8 @@
     if (p.minCap) out.push(`<span class="chip warn">出場${p.minCap}分まで</span>`);
     if (p.dual && p.dual.status === 'undecided') out.push(`<span class="chip ai">二重国籍（${esc(p.dual.nation)}）</span>`);
     if (G.isOly() && !G.olyEligible(p)) out.push('<span class="chip">OA</span>');
+    if (G.inUlist(p)) out.push(`<span class="chip hi">${G.uCat(p)}リスト</span>`);
+    if (G.isStudent(p)) out.push(`<span class="chip">${p.club.endsWith('大') ? '大学生' : '高校/ユース'}</span>`);
     const f = p.form + (p.mood || 0) * 0.35;
     if (f >= 2) out.push('<span class="chip good">絶好調</span>'); else if (f >= 1) out.push('<span class="chip good">好調</span>');
     else if (f <= -2) out.push('<span class="chip bad">絶不調</span>'); else if (f <= -1) out.push('<span class="chip warn">不調</span>');
@@ -307,7 +321,7 @@
         ${done ? '<span class="small muted">採用済み</span>' : `<button class="btn sm primary" data-act="staff-swap" data-k="${k}">入れ替える</button>`}</div>`;
     }).join('');
     const recBtn = !S.squad.length ? `<button class="btn primary" data-act="staff-rec">推奨${coach.rec.length}人を採用する</button>` : (coach.swaps.length ? `<button class="btn sm" data-act="staff-all">提案をすべて採用</button>` : '');
-    const scout = r.scout.map(x => { const p = G.player(x.id); if (!p) return ''; const on = S.squad.includes(p.id); return `<div class="sugg"><div><span class="chip ai">${esc(x.tag)}</span> ${pLink(p)}<div class="small muted">${pMeta(p)}</div><div class="small">${esc(x.text)}</div></div>${on ? '<span class="small muted">招集済み</span>' : `<button class="btn sm" data-act="call" data-id="${p.id}">招集する</button>`}</div>`; }).join('');
+    const scout = r.scout.map(x => { const p = G.player(x.id); if (!p) return ''; const on = S.squad.includes(p.id); return `<div class="sugg"><div><span class="chip ai">${esc(x.tag)}</span> ${pLink(p)}<div class="small muted">${pMeta(p)}</div><div class="small">${esc(x.text)}</div></div>${x.u ? ulistBtn(p, true) : on ? '<span class="small muted">招集済み</span>' : `<button class="btn sm" data-act="call" data-id="${p.id}">招集する</button>`}</div>`; }).join('');
     return `<div class="grid g2">
       <section class="card">${staffHead('coach')}
         <p class="quote">${esc(coach.summary)}</p>
@@ -381,7 +395,7 @@
         <tbody>${ps.map(p => {
           const on = S.squad.includes(p.id);
           return `<tr class="${on ? 'called' : ''}">
-            <td><button class="check" data-act="call" data-id="${p.id}" aria-pressed="${on}" aria-label="${esc(p.name)}を招集" ${canCall ? '' : 'disabled'}>${on ? '✓' : ''}</button></td>
+            <td><button class="check" data-act="call" data-id="${p.id}" aria-pressed="${on}" aria-label="${esc(p.name)}を招集" ${canCall && (on || G.eligibleNow(p)) ? '' : 'disabled'}>${on ? '✓' : ''}</button></td>
             <td class="nm" data-act="player" data-id="${p.id}">${esc(p.name)}${p.real ? '' : ' <span class="chip ai">新星</span>'}<div class="chips">${stateChips(p, { rumor: true })}</div></td>
             <td>${posChip(p)}${p.alt.length ? ` <span class="muted small">${p.alt.map(a => E.POS_LABEL[a]).join('/')}</span>` : ''}</td>
             <td class="num">${G.ageInt(p)}</td>
@@ -543,6 +557,22 @@
     }).join('')}</div><p class="small muted" style="margin:8px 0 0">気持ちが低いまま招集すると辞退されることがある。相手国のA代表に呼ばれると一気に気持ちが離れる。</p></section>`;
   }
 
+  // ---------- U世代リスト ----------
+  function ulistCard(S) {
+    const ids = Object.keys(S.ulist || {}).filter(id => G.player(id));
+    const ev = DP.nextYouthEvents ? DP.nextYouthEvents(2) : [];
+    const evLine = ev.length ? `次の世界大会：${ev.map(e => `${e.y}年${e.m}月 ${e.name}`).join('、')}。リストの選手は優先して選ばれ、大会で鍛えられる。` : '';
+    const cats = ['U-17', 'U-20', 'U-23'];
+    const row = p => {
+      const e = S.ulist[p.id], d = Math.round(p.ovr) - (e.ovr0 || Math.round(p.ovr));
+      return `<div class="pitem">${posChip(p)}<div style="min-width:0"><div class="n" data-act="player" data-id="${p.id}">${esc(p.name)}${e.ready ? ' <span class="chip good">A代表候補</span>' : ''}</div><div class="c">${esc(p.club)} ・ ${G.ageInt(p)}歳 ・ 潜在 ${potText(p)}${d > 0 ? ` ・ <span class="form-up">登録時から+${d}</span>` : ''}</div></div>${ovrTag(p.ovr)}<button class="btn sm" data-act="ulist" data-id="${p.id}" aria-label="${esc(p.name)}をリストから外す">外す</button></div>`;
+    };
+    const body = cats.map(c => { const ps = ids.map(G.player).filter(p => G.uCat(p) === c).sort((a, b) => b.pot - a.pot); return ps.length ? `<div class="eyebrow" style="margin:10px 0 6px">${c}（${ps.length}人）</div><div class="plist">${ps.map(row).join('')}</div>` : ''; }).join('');
+    return `<section class="card"><h2>U世代リスト<span class="sub">${ids.length}人をメモ</span></h2>
+      <p class="small muted" style="margin:0 0 4px">高校・大学やユースで見つけた選手は、いきなりA代表ではなくアンダー世代で追いかける。リストの選手は年代別代表の活動で少しずつ伸び、プロ入りや活躍はニュースで知らせる。${evLine}</p>
+      ${body || '<p class="muted small" style="margin:8px 0 0">まだ誰もメモしていない。育成年代の視察で見つけた選手はここに入る。</p>'}</section>`;
+  }
+
   // ---------- 視察 ----------
   function scout(S) {
     const trips = S.cur.trips || [];
@@ -553,8 +583,8 @@
         <p class="small muted" style="margin:0 0 12px">視察すると対象クラブの選手の潜在能力の見積もりが正確になり、まだリストにない若手が見つかることもある。${can ? '' : '視察は代表活動の合間（選考期間）にしか行けない。'}</p>
         <div class="plist">${trips.map(t => `<div class="sugg ${t.done ? 'done' : ''}"><div><span class="chip ${t.kind === 'EU' ? 'ai' : t.kind === 'youth' ? 'hi' : ''}">${kindL[t.kind]}</span> <b>${esc(t.title)}</b><div class="small muted">${t.clubs ? esc(t.clubs.slice(0, 6).join('・')) : esc(t.leagues.join('・'))}</div></div>${t.done ? '<span class="small muted">視察済み</span>' : `<button class="btn sm primary" data-act="trip" data-v="${t.id}" ${can && S.scoutPts >= t.cost ? '' : 'disabled'}>視察する（${t.cost}pt）</button>`}</div>`).join('')}</div>
       </section>
-      <div class="grid" style="align-content:start">${dualCard(S)}${trips.filter(t => t.report).map(t => `<section class="card"><h2>${esc(t.title)}<span class="sub">視察レポート${t.report.found ? ` ・ 新たに${t.report.found}人を発見` : ''}</span></h2>
-        <div class="plist">${t.report.rows.map(r => { const p = G.player(r.id); return `<div class="pitem">${posChip(p)}<div style="min-width:0"><div class="n" data-act="player" data-id="${p.id}">${esc(p.name)} ${r.found ? '<span class="chip hi">発見</span>' : ''}</div><div class="c">${esc(p.club)} ・ ${G.ageInt(p)}歳 ・ 潜在 ${potText(p)}</div><div class="small">${esc(r.text)}</div></div>${ovrTag(p.ovr)}${S.phase === 'prep' && !S.squad.includes(p.id) && G.callable(p) ? `<button class="btn sm" data-act="call" data-id="${p.id}">招集</button>` : formTag(p.form)}</div>`; }).join('')}</div></section>`).join('') || '<section class="card"><p class="muted">まだ視察していない。</p></section>'}</div>
+      <div class="grid" style="align-content:start">${ulistCard(S)}${dualCard(S)}${trips.filter(t => t.report).map(t => `<section class="card"><h2>${esc(t.title)}<span class="sub">視察レポート${t.report.found ? ` ・ 新たに${t.report.found}人を発見` : ''}${t.report.listed ? `（U世代リストに${t.report.listed}人メモ）` : ''}</span></h2>
+        <div class="plist">${t.report.rows.map(r => { const p = G.player(r.id); return `<div class="pitem">${posChip(p)}<div style="min-width:0"><div class="n" data-act="player" data-id="${p.id}">${esc(p.name)} ${r.found ? '<span class="chip hi">発見</span>' : ''}</div><div class="c">${esc(p.club)} ・ ${G.ageInt(p)}歳 ・ 潜在 ${potText(p)}</div><div class="small">${esc(r.text)}</div></div>${ovrTag(p.ovr)}${G.uCat(p) && (G.isStudent(p) || G.inUlist(p)) ? ulistBtn(p, true) : S.phase === 'prep' && !S.squad.includes(p.id) && G.callable(p) && G.eligibleNow(p) ? `<button class="btn sm" data-act="call" data-id="${p.id}">招集</button>` : formTag(p.form)}</div>`; }).join('')}</div></section>`).join('') || '<section class="card"><p class="muted">まだ視察していない。</p></section>'}</div>
     </div>`;
   }
 
@@ -1019,8 +1049,10 @@
         <div class="bars">${Object.entries(attrs).map(([k, v]) => `<div class="bar"><span>${k}</span><span class="tr"><i style="width:${v}%"></i></span><b>${v}</b></div>`).join('')}</div>
         <div><div class="eyebrow">能力の推移</div>${spark(p.hist)}<p class="small muted" style="margin:6px 0 0">${p.know >= 3 ? '代表で直接見ており、潜在能力の見積もりは正確。' : `視察するほど潜在能力の見積もりが正確になる（現在 ${p.know}/3）。`}</p></div>
       </div>
+      ${G.isStudent(p) && !G.aReady(p) ? `<p class="small muted" style="margin:14px 0 0">${p.club.endsWith('大') ? '大学' : '高校・ユース'}でプレーする学生。A代表に呼ぶのはプロになってから（能力${G.SKIP_OVR}以上の別格なら飛び級もあり）。まずはU世代リストで成長を追う。</p>` : ''}
       <div class="row" style="margin-top:16px">
-        ${S.phase === 'prep' ? `<button class="btn ${on ? '' : 'primary'}" data-act="call" data-id="${p.id}">${on ? '招集から外す' : '招集する'}</button>` : ''}
+        ${S.phase === 'prep' && (on || G.eligibleNow(p)) ? `<button class="btn ${on ? '' : 'primary'}" data-act="call" data-id="${p.id}">${on ? '招集から外す' : '招集する'}</button>` : ''}
+        ${ulistBtn(p)}
         ${p.know < 3 ? `<button class="btn" data-act="scout" data-id="${p.id}" ${S.scoutPts > 0 ? '' : 'disabled'}>視察する（残り${S.scoutPts}）</button>` : ''}
       </div></div></div>`;
   }
@@ -1216,10 +1248,12 @@
       if (S.phase === 'camp') {
         const p = G.player(d.id);
         if (i >= 0 && p.injury > 0) { S.squad.splice(i, 1); S.xi = S.xi.map(x => x === d.id ? null : x); G.addNews('招集', `${p.name}が負傷のため代表チームを離脱。`); }
+        else if (i < 0 && !G.eligibleNow(p)) toast(noCallReason(p));
         else if (i < 0 && S.squad.length < G.squadMax() && G.callable(p)) { S.squad.push(d.id); p.know = 3; p.cond = G.campCondition(p); p.campCount = (p.campCount || 0) + 1; G.addNews('招集', `${p.name}を追加招集。`); toast(`${p.name}を追加招集した`); }
         G.save(); render(); return;
       }
       if (S.phase !== 'prep') return;
+      if (i < 0 && !G.eligibleNow(G.player(d.id))) { toast(noCallReason(G.player(d.id))); return; }
       if (i >= 0) { S.squad.splice(i, 1); S.xi = S.xi.map(x => x === d.id ? null : x); }
       else {
         // 満員なら外す選手を選んでもらう
@@ -1290,11 +1324,17 @@
     'camp-start'() { G.startCamp(); tab = 'home'; render(); window.scrollTo(0, 0); },
     session(d) { const e = G.trainSession(d.v); render(); if (e) toast(`${e.day}日目：${e.name}`); },
     'camp-end'() { G.finishCamp(); tab = 'home'; render(); toast('合宿打ち上げ。いよいよ試合だ'); },
-    trip(d) { const r = C.doTrip(d.v); render(); if (r) toast(r.found ? `視察で${r.found}人の新しい選手を見つけた` : '視察レポートが届いた'); },
+    trip(d) { const r = C.doTrip(d.v); render(); if (r) toast(r.found ? `視察で${r.found}人を発見${r.listed ? `（U世代リストに${r.listed}人メモ）` : ''}` : '視察レポートが届いた'); },
     sp(d) { const S = G.state(); S.setPlay[d.k] = d.v || null; G.save(); render(); },
     player(d) { ui.modal = { type: 'player', id: d.id }; renderModal(); },
     close() { ui.modal = null; renderModal(); },
     'close-bg'(d, el, ev) { if (ev.target === el) { ui.modal = null; renderModal(); } },
+    ulist(d) {
+      const S = G.state(), p = G.player(d.id); if (!p) return;
+      if (G.inUlist(p)) { G.ulistRemove(p); toast(`${p.name}をU世代リストから外した`); }
+      else if (G.ulistAdd(p, '監督')) toast(`${p.name}を${G.uCat(p)}リストにメモした`);
+      G.save(); render();
+    },
     scout(d) { if (G.scout(d.id)) { G.save(); render(); toast('視察で見積もりが更新された'); } },
     slot(d) { ui.modal = { type: 'slot', i: +d.i }; renderModal(); },
     'pick-slot'(d) {

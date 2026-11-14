@@ -152,6 +152,13 @@
     const jl = pool.filter(p => W.isJ(p.club) && p.form >= 0.8 && p.ovr >= 70).sort((a, b) => value(b) - value(a))[0];
     if (jl) add(jl, 'Jリーグ', `J1で存在感。${seasonLine(jl)}。国内組からの推薦です。`);
 
+    // 学生の逸材はA代表ではなくU世代リストへの登録を勧める
+    const stu = G.visible().filter(p => G.isStudent(p) && G.uCat(p) && !G.inUlist(p) && !G.aReady(p)).sort((a, b) => b.pot - a.pot)[0];
+    if (stu && picks.length < 5) {
+      const [lo, hi] = G.potRange(stu);
+      picks.push({ id: stu.id, tag: 'U世代', u: true, text: `${stu.club}の${G.ageInt(stu)}歳。まだ学生なのでA代表は早いですが、潜在能力は${G.potGrade((lo + hi) / 2)}級。${G.uCat(stu)}世代のリストに入れて追いかけましょう。` });
+    }
+
     // メディカル
     const watch = G.visible().filter(p => cur.includes(p.id) || rec.includes(p.id) || (S.cur.prevSquad || []).includes(p.id) || p.chem >= 30 || p.ovr >= 72 || p.caps > 0);
     const medical = [];
